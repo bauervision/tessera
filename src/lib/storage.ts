@@ -14,6 +14,11 @@ import type {
 
 //---------------Sessions--------------
 
+function fromYmdLocal(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
 const SESSIONS_KEY = "tessera:sessions";
 
 function safeParseSessions(raw: string | null): Session[] {
@@ -42,19 +47,38 @@ export function getSessionsForProject(projectId: ProjectId): Session[] {
 }
 
 export function addSession(
-  id: string,
-  p0: { whatIDid: string; whereLeftOff: string; nextMoves: string },
-  input: Omit<Session, "id" | "createdAt">
+  projectId: ProjectId,
+  data: {
+    whatIDid: string;
+    whereLeftOff: string;
+    nextMoves: string[];
+    createdAtOverride?: string;
+    estimatedHours?: number;
+  }
 ): Session {
   if (typeof window === "undefined") {
     throw new Error("addSession must run in the browser");
   }
 
-  const now = new Date().toISOString();
+  const base =
+    data.createdAtOverride && data.createdAtOverride.trim()
+      ? fromYmdLocal(data.createdAtOverride.trim())
+      : new Date();
+
+  const createdAt = base.toISOString();
+
   const newSession: Session = {
-    id: `sess_${now}_${Math.random().toString(36).slice(2)}`,
-    createdAt: now,
-    ...input,
+    id: `sess_${createdAt}_${Math.random().toString(36).slice(2)}`,
+    projectId,
+    createdAt,
+    whatIDid: data.whatIDid,
+    whereLeftOff: data.whereLeftOff,
+    nextMoves: data.nextMoves,
+    estimatedHours:
+      typeof data.estimatedHours === "number" &&
+      !Number.isNaN(data.estimatedHours)
+        ? data.estimatedHours
+        : undefined,
   };
 
   const existing = getAllSessions();
@@ -65,7 +89,41 @@ export function addSession(
   return newSession;
 }
 
+export function updateSession(
+  sessionId: string,
+  changes: Partial<Session>
+): Session | null {
+  if (typeof window === "undefined") {
+    throw new Error("updateSession must run in the browser");
+  }
+
+  const all = getAllSessions();
+  const idx = all.findIndex((s) => s.id === sessionId);
+  if (idx === -1) return null;
+
+  const updated: Session = {
+    ...all[idx],
+    ...changes,
+  };
+
+  const next = [...all];
+  next[idx] = updated;
+
+  window.localStorage.setItem(SESSIONS_KEY, JSON.stringify(next));
+  return updated;
+}
+
 //---------------Jobs and Projects --------------
+
+export function getTotalHoursForProject(projectId: ProjectId): number {
+  return getSessionsForProject(projectId).reduce((sum, s) => {
+    const h =
+      typeof s.estimatedHours === "number" && !Number.isNaN(s.estimatedHours)
+        ? s.estimatedHours
+        : 0;
+    return sum + h;
+  }, 0);
+}
 
 const JOBS_KEY = "tessera:jobsCustom";
 const PROJECTS_KEY = "tessera:projectsCustom";
@@ -143,13 +201,15 @@ export function addCustomProject(input: {
   }
 
   const id: ProjectId = `proj-custom-${Date.now().toString(36)}`;
+  const todayIso = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+
   const newProj: Project = {
     id,
     jobId: input.jobId,
     name: input.name,
     code: input.code,
     status: "active",
-    priority: input.priority,
+    lastActivityAt: todayIso,
   };
 
   const current = getCustomProjects();

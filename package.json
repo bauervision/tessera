@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "build": "next build ",
+    "host": "firebase deploy",
+    "deploy": "npm run build && firebase deploy"
   },
   "dependencies": {
     "framer-motion": "^12.23.24",

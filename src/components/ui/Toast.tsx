@@ -29,7 +29,7 @@ export function Toast({
       : "border-sky-400 bg-sky-500/10 text-sky-100";
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div className="pointer-events-none fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 flex-col gap-2">
       <div
         className={`pointer-events-auto flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-lg ${colors}`}
       >

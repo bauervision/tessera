@@ -1,0 +1,10 @@
+{
+  "hosting": {
+    "site": "tessera",
+    "public": "out",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "frameworksBackend": {
+      "region": "us-east1"
+    }
+  }
+}

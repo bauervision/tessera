@@ -40,7 +40,7 @@ export const projectsSeed: Project[] = [
     name: "Sonus",
     code: "Sonus",
     status: "active",
-    priority: "cool", // 🟢 simmering R&D
+    lastActivityAt: "2025-10-18",
   },
   {
     id: "eidomap",
@@ -48,7 +48,7 @@ export const projectsSeed: Project[] = [
     name: "EidoMap",
     code: "EidoMap",
     status: "active",
-    priority: "cool", // 🟢
+    lastActivityAt: "2025-09-18",
   },
 
   // Job 2 — Knexus.Ai
@@ -58,7 +58,7 @@ export const projectsSeed: Project[] = [
     name: "Gailforce",
     code: "Gailforce",
     status: "active",
-    priority: "hot", // 🔥
+    lastActivityAt: "2025-11-18",
   },
   {
     id: "clara",
@@ -66,7 +66,7 @@ export const projectsSeed: Project[] = [
     name: "Clara (Kustos)",
     code: "Clara",
     status: "active",
-    priority: "warm", // 🟡
+    lastActivityAt: "2025-11-19",
   },
   {
     id: "jv",
@@ -74,7 +74,7 @@ export const projectsSeed: Project[] = [
     name: "Journal Voucher",
     code: "JV",
     status: "active",
-    priority: "warm", // 🟡
+    lastActivityAt: "2025-11-19",
   },
   {
     id: "knexplan",
@@ -82,7 +82,7 @@ export const projectsSeed: Project[] = [
     name: "KnexPlan",
     code: "KnexPlan",
     status: "active",
-    priority: "hot", // 🔥
+    lastActivityAt: "2025-11-14",
   },
 
   // Job 3 — Constellis
@@ -92,7 +92,7 @@ export const projectsSeed: Project[] = [
     name: "Onboarding & Playbook",
     code: "Onboarding",
     status: "active",
-    priority: "hot", // 🔥 new job energy
+    lastActivityAt: "2025-12-01",
   },
 
   // Job 4 — BauerVision
@@ -102,7 +102,7 @@ export const projectsSeed: Project[] = [
     name: "Tessera",
     code: "Tessera",
     status: "active",
-    priority: "hot", // 🔥 this is your current meta-focus
+    lastActivityAt: "2025-11-19",
   },
   {
     id: "mentrogress",
@@ -110,7 +110,7 @@ export const projectsSeed: Project[] = [
     name: "Mentrogress",
     code: "Mentrogress",
     status: "active",
-    priority: "warm", // 🟡
+    lastActivityAt: "2025-11-13",
   },
   {
     id: "forevian",
@@ -118,6 +118,6 @@ export const projectsSeed: Project[] = [
     name: "Forevian",
     code: "Forevian",
     status: "active",
-    priority: "cool", // 🟢
+    lastActivityAt: "2025-10-18",
   },
 ];

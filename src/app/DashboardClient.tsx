@@ -7,8 +7,13 @@ import {
   loadJobsAndProjects,
   addCustomJob,
   addCustomProject,
+  getSessionsForProject,
+  getTotalHoursForProject,
 } from "@/lib/storage";
 import LastLoggedBadge from "@/components/LastLoggedBadge";
+import { priorityFromLastActivity } from "@/lib/priority";
+import { useRouter } from "next/navigation";
+import { isLoggedIn, logout } from "@/lib/auth";
 
 const priorityVisual = (priority: Priority) => {
   switch (priority) {
@@ -50,6 +55,18 @@ const priorityVisual = (priority: Priority) => {
 };
 
 export default function DashboardClient() {
+  const router = useRouter();
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isLoggedIn()) {
+      router.replace("/login");
+    } else {
+      setAuthReady(true);
+    }
+  }, [router]);
+
   const [jobs, setJobs] = useState<Job[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
@@ -105,6 +122,10 @@ export default function DashboardClient() {
     refreshJobsProjects();
   };
 
+  if (!authReady) {
+    // simple guard to avoid flicker
+    return null;
+  }
   return (
     <>
       <div className="mx-auto max-w-6xl">
@@ -153,33 +174,56 @@ export default function DashboardClient() {
 
                 <ul className="space-y-1.5 text-sm">
                   {jobProjects.map((p) => {
-                    const pri = priorityVisual(p.priority);
+                    // Look at sessions first, then fall back to seeded lastActivityAt
+                    const sessions = getSessionsForProject(p.id);
+                    const latestSession = sessions[0];
+                    const effectiveLastActivityIso =
+                      latestSession?.createdAt || p.lastActivityAt || null;
+
+                    const computedPriority = priorityFromLastActivity(
+                      effectiveLastActivityIso
+                    );
+
+                    const visuals = priorityVisual(computedPriority);
+                    const totalHours = getTotalHoursForProject(p.id);
 
                     return (
                       <li key={p.id}>
                         <Link
                           href={`/project?id=${p.id}`}
-                          className={`group block rounded-2xl bg-gradient-to-r ${pri.borderGradient} p-[1px]`}
+                          className={`group block rounded-2xl bg-linear-to-r ${visuals.borderGradient} p-px`}
                         >
                           <div
-                            className={`relative flex items-stretch justify-between rounded-[1rem] bg-gradient-to-r ${pri.bgGradient} transition-transform duration-200 ease-out group-hover:-translate-y-[1px]`}
+                            className={`relative flex items-stretch justify-between rounded-2xl bg-linear-to-r ${visuals.bgGradient} transition-transform duration-200 ease-out group-hover:-translate-y-px`}
                           >
                             <div
-                              className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${pri.overlay}`}
+                              className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${visuals.overlay}`}
                             />
 
                             <div
-                              className={`relative z-10 flex w-10 items-center justify-center rounded-l-[0.95rem] bg-gradient-to-b ${pri.stripeGradient} text-xl shadow-none transition-shadow duration-200 ${pri.stripeGlow}`}
+                              className={`relative z-10 flex w-10 items-center justify-center rounded-l-[0.95rem] bg-linear-to-b ${visuals.stripeGradient} text-xl shadow-none transition-shadow duration-200 ${visuals.stripeGlow}`}
                             >
-                              <span aria-hidden>{pri.icon}</span>
+                              <span aria-hidden>{visuals.icon}</span>
                             </div>
 
                             <div className="relative z-10 flex flex-1 items-center justify-between gap-3 px-3 py-2">
-                              <div className="flex items-center gap-4">
+                              <div className="flex gap-4">
                                 <span className="font-medium text-slate-50">
                                   {p.name}
                                 </span>
-                                <LastLoggedBadge projectId={p.id} />
+
+                                <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                                  <LastLoggedBadge projectId={p.id} />
+                                  {totalHours > 0 && (
+                                    <span className="text-slate-300">
+                                      •{" "}
+                                      <span className="text-emerald-300 font-medium">
+                                        {totalHours}h
+                                      </span>{" "}
+                                      logged
+                                    </span>
+                                  )}
+                                </div>
                               </div>
 
                               <span className="shrink-0 text-xs rounded-full border border-sky-400/60 bg-sky-500/15 px-3 py-1 text-sky-100 transition-colors group-hover:bg-sky-500/35">

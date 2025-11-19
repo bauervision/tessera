@@ -11,6 +11,8 @@ export type Session = {
   whatIDid: string;
   whereLeftOff: string;
   nextMoves: string[]; // up to 3 "next" lines
+  createdAtOverride?: string;
+  estimatedHours?: number;
 };
 
 export type Job = {
@@ -27,7 +29,7 @@ export type Project = {
   name: string;
   code: string;
   status: "active" | "dormant" | "archived";
-  priority: Priority; // 👈 new
+  lastActivityAt: string | null;
   notes?: string;
 };
 
