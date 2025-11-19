@@ -30,3 +30,13 @@ export type Project = {
   priority: Priority; // 👈 new
   notes?: string;
 };
+
+export type ProjectBrief = {
+  projectId: ProjectId;
+  purpose: string;
+  capabilities: string;
+  workPlan: string;
+  vision: string;
+  checklist: string;
+  updatedAt: string; // ISO
+};

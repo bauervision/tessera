@@ -107,7 +107,7 @@ export default function DashboardClient() {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="mx-auto max-w-6xl">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
             Today in Tessera

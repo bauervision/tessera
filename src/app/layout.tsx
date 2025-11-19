@@ -29,8 +29,9 @@ export default function RootLayout({
             </div>
           </header>
 
+          {/* 🔓 Main is now full-width; pages control their own layout */}
           <main className="flex-1">
-            <div className="mx-auto max-w-6xl px-4 py-6">{children}</div>
+            <div className="px-4 py-6">{children}</div>
           </main>
 
           <footer className="border-t border-white/10 bg-slate-950/90">

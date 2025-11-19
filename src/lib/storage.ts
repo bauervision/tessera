@@ -1,3 +1,4 @@
+//lib/storage.ts
 "use client";
 
 import { jobsSeed, projectsSeed } from "./seed";
@@ -8,7 +9,10 @@ import type {
   Priority,
   Project,
   Job,
+  ProjectBrief,
 } from "./types";
+
+//---------------Sessions--------------
 
 const SESSIONS_KEY = "tessera:sessions";
 
@@ -37,7 +41,11 @@ export function getSessionsForProject(projectId: ProjectId): Session[] {
     );
 }
 
-export function addSession(input: Omit<Session, "id" | "createdAt">): Session {
+export function addSession(
+  id: string,
+  p0: { whatIDid: string; whereLeftOff: string; nextMoves: string },
+  input: Omit<Session, "id" | "createdAt">
+): Session {
   if (typeof window === "undefined") {
     throw new Error("addSession must run in the browser");
   }
@@ -56,6 +64,8 @@ export function addSession(input: Omit<Session, "id" | "createdAt">): Session {
 
   return newSession;
 }
+
+//---------------Jobs and Projects --------------
 
 const JOBS_KEY = "tessera:jobsCustom";
 const PROJECTS_KEY = "tessera:projectsCustom";
@@ -147,4 +157,58 @@ export function addCustomProject(input: {
   saveCustomProjects(next);
 
   return newProj;
+}
+
+//---------------Briefs--------------
+
+const BRIEFS_KEY = "tessera:briefs";
+
+function getAllBriefs(): ProjectBrief[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(BRIEFS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ProjectBrief[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+function saveAllBriefs(briefs: ProjectBrief[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(BRIEFS_KEY, JSON.stringify(briefs));
+}
+
+export function getBriefForProject(projectId: ProjectId): ProjectBrief | null {
+  const all = getAllBriefs();
+  return all.find((b) => b.projectId === projectId) ?? null;
+}
+
+export function upsertBriefForProject(
+  projectId: ProjectId,
+  input: Omit<ProjectBrief, "projectId" | "updatedAt">
+): ProjectBrief {
+  if (typeof window === "undefined") {
+    throw new Error("upsertBriefForProject must run in the browser");
+  }
+
+  const now = new Date().toISOString();
+  const existing = getAllBriefs();
+  const rest = existing.filter((b) => b.projectId !== projectId);
+
+  const brief: ProjectBrief = {
+    projectId,
+    updatedAt: now,
+    purpose: input.purpose,
+    capabilities: input.capabilities,
+    workPlan: input.workPlan,
+    vision: input.vision,
+    checklist: input.checklist,
+  };
+
+  const next = [brief, ...rest];
+  saveAllBriefs(next);
+  return brief;
 }
