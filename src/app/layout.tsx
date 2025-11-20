@@ -4,6 +4,8 @@ import "./globals.css";
 
 import { Navbar } from "@/components/ui/Navbar";
 import { AnimatedBackgroundSkin } from "@/components/ui/AnimatedBackgroundSkin";
+import { QuickMeetingsWidget } from "@/components/QuickMeetingWidget";
+import { MeetingTitleWatcher } from "@/components/MeetingTitleWatcher";
 
 export const metadata: Metadata = {
   title: "Tessera",
@@ -17,6 +19,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-slate-950 text-slate-50">
         <AnimatedBackgroundSkin />
+
         <div className="flex min-h-screen flex-col">
           <Navbar />
 
@@ -25,6 +28,8 @@ export default function RootLayout({
             <div className="px-4 py-6">{children}</div>
           </main>
 
+          <QuickMeetingsWidget />
+          <MeetingTitleWatcher />
           <footer className="border-t border-white/10 bg-slate-950/90">
             <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 text-xs text-slate-500">
               <span>© {new Date().getFullYear()} Bauervision · Tessera</span>

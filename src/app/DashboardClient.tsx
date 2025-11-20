@@ -14,6 +14,7 @@ import LastLoggedBadge from "@/components/LastLoggedBadge";
 import { priorityFromLastActivity } from "@/lib/priority";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, logout } from "@/lib/auth";
+import { DashboardMeetingsPanel } from "@/components/DashboardMeetingPanel";
 
 const priorityVisual = (priority: Priority) => {
   switch (priority) {
@@ -129,134 +130,141 @@ export default function DashboardClient() {
   return (
     <>
       <div className="mx-auto max-w-6xl">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Today in Tessera
-          </h1>
-          <p className="mt-1 text-sm text-slate-400">
-            High-level view of your jobs and active projects. Sessions and
-            &ldquo;Resume work&rdquo; live on each workspace.
-          </p>
-        </div>
+        <div className="px-6 pb-8 pt-4">
+          {/* Header */}
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Today in Tessera
+            </h1>
+            <p className="mt-1 text-sm text-slate-400">
+              High-level view of your jobs and active projects. Sessions and
+              &ldquo;Resume work&rdquo; live on each workspace.
+            </p>
+          </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          {jobs.map((job) => {
-            const jobProjects = projects.filter((p) => p.jobId === job.id);
+          <div className="mt-4 flex gap-4">
+            {/* NEW left calendar panel */}
+            <DashboardMeetingsPanel />
+            {/* Center Panel */}
+            <div className="grid gap-4 md:grid-cols-2">
+              {jobs.map((job) => {
+                const jobProjects = projects.filter((p) => p.jobId === job.id);
 
-            return (
-              <section
-                key={job.id}
-                className="rounded-2xl border border-white/10 bg-slate-900/60 p-4"
-              >
-                <header className="mb-3 flex items-center justify-between gap-2">
-                  <div>
-                    <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
-                      {job.name}
-                    </h2>
-                    <p className="text-xs text-slate-500">{job.label}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProjectJobId(job.id);
-                        setShowProjectDialog(true);
-                      }}
-                      className="text-[11px] rounded-full border border-sky-400/40 bg-sky-500/10 px-2.5 py-1 text-sky-100 hover:bg-sky-500/25"
-                    >
-                      + New project
-                    </button>
-                    <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
-                      {job.status === "active" ? "Active" : "Paused"}
-                    </span>
-                  </div>
-                </header>
-
-                <ul className="space-y-1.5 text-sm">
-                  {jobProjects.map((p) => {
-                    // Look at sessions first, then fall back to seeded lastActivityAt
-                    const sessions = getSessionsForProject(p.id);
-                    const latestSession = sessions[0];
-                    const effectiveLastActivityIso =
-                      latestSession?.createdAt || p.lastActivityAt || null;
-
-                    const computedPriority = priorityFromLastActivity(
-                      effectiveLastActivityIso
-                    );
-
-                    const visuals = priorityVisual(computedPriority);
-                    const totalHours = getTotalHoursForProject(p.id);
-
-                    return (
-                      <li key={p.id}>
-                        <Link
-                          href={`/project?id=${p.id}`}
-                          className={`group block rounded-2xl bg-linear-to-r ${visuals.borderGradient} p-px`}
+                return (
+                  <section
+                    key={job.id}
+                    className="rounded-2xl border border-white/10 bg-slate-900/60 p-4"
+                  >
+                    <header className="mb-3 flex items-center justify-between gap-2">
+                      <div>
+                        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
+                          {job.name}
+                        </h2>
+                        <p className="text-xs text-slate-500">{job.label}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProjectJobId(job.id);
+                            setShowProjectDialog(true);
+                          }}
+                          className="text-[11px] rounded-full border border-sky-400/40 bg-sky-500/10 px-2.5 py-1 text-sky-100 hover:bg-sky-500/25"
                         >
-                          <div
-                            className={`relative flex items-stretch justify-between rounded-2xl bg-linear-to-r ${visuals.bgGradient} transition-transform duration-200 ease-out group-hover:-translate-y-px`}
-                          >
-                            <div
-                              className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${visuals.overlay}`}
-                            />
+                          + New project
+                        </button>
+                        <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+                          {job.status === "active" ? "Active" : "Paused"}
+                        </span>
+                      </div>
+                    </header>
 
-                            <div
-                              className={`relative z-10 flex w-10 items-center justify-center rounded-l-[0.95rem] bg-linear-to-b ${visuals.stripeGradient} text-xl shadow-none transition-shadow duration-200 ${visuals.stripeGlow}`}
+                    <ul className="space-y-1.5 text-sm">
+                      {jobProjects.map((p) => {
+                        // Look at sessions first, then fall back to seeded lastActivityAt
+                        const sessions = getSessionsForProject(p.id);
+                        const latestSession = sessions[0];
+                        const effectiveLastActivityIso =
+                          latestSession?.createdAt || p.lastActivityAt || null;
+
+                        const computedPriority = priorityFromLastActivity(
+                          effectiveLastActivityIso
+                        );
+
+                        const visuals = priorityVisual(computedPriority);
+                        const totalHours = getTotalHoursForProject(p.id);
+
+                        return (
+                          <li key={p.id}>
+                            <Link
+                              href={`/project?id=${p.id}`}
+                              className={`group block rounded-2xl bg-linear-to-r ${visuals.borderGradient} p-px`}
                             >
-                              <span aria-hidden>{visuals.icon}</span>
-                            </div>
+                              <div
+                                className={`relative flex items-stretch justify-between rounded-2xl bg-linear-to-r ${visuals.bgGradient} transition-transform duration-200 ease-out group-hover:-translate-y-px`}
+                              >
+                                <div
+                                  className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${visuals.overlay}`}
+                                />
 
-                            <div className="relative z-10 flex flex-1 items-center justify-between gap-3 px-3 py-2">
-                              <div className="flex gap-4">
-                                <span className="font-medium text-slate-50">
-                                  {p.name}
-                                </span>
+                                <div
+                                  className={`relative z-10 flex w-10 items-center justify-center rounded-l-[0.95rem] bg-linear-to-b ${visuals.stripeGradient} text-xl shadow-none transition-shadow duration-200 ${visuals.stripeGlow}`}
+                                >
+                                  <span aria-hidden>{visuals.icon}</span>
+                                </div>
 
-                                <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                                  <LastLoggedBadge projectId={p.id} />
-                                  {totalHours > 0 && (
-                                    <span className="text-slate-300">
-                                      •{" "}
-                                      <span className="text-emerald-300 font-medium">
-                                        {totalHours}h
-                                      </span>{" "}
-                                      logged
+                                <div className="relative z-10 flex flex-1 items-center justify-between gap-3 px-3 py-2">
+                                  <div className="flex gap-4">
+                                    <span className="font-medium text-slate-50">
+                                      {p.name}
                                     </span>
-                                  )}
+
+                                    <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                                      <LastLoggedBadge projectId={p.id} />
+                                      {totalHours > 0 && (
+                                        <span className="text-slate-300">
+                                          •{" "}
+                                          <span className="text-emerald-300 font-medium">
+                                            {totalHours}h
+                                          </span>{" "}
+                                          logged
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <span className="shrink-0 text-xs rounded-full border border-sky-400/60 bg-sky-500/15 px-3 py-1 text-sky-100 transition-colors group-hover:bg-sky-500/35">
+                                    Open workspace
+                                  </span>
                                 </div>
                               </div>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                );
+              })}
 
-                              <span className="shrink-0 text-xs rounded-full border border-sky-400/60 bg-sky-500/15 px-3 py-1 text-sky-100 transition-colors group-hover:bg-sky-500/35">
-                                Open workspace
-                              </span>
-                            </div>
-                          </div>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            );
-          })}
-
-          {/* New Company tile */}
-          <button
-            type="button"
-            onClick={() => setShowJobDialog(true)}
-            className="flex min-h-[150px] items-center justify-center rounded-2xl border border-dashed border-sky-400/40 bg-slate-900/40 px-4 py-6 text-sm text-sky-200 hover:border-sky-300 hover:bg-slate-900/70"
-          >
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-2xl">＋</span>
-              <span className="font-medium">New company</span>
-              <span className="text-[11px] text-slate-400">
-                Add another job / employer to your Tessera board.
-              </span>
+              {/* New Company tile */}
+              <button
+                type="button"
+                onClick={() => setShowJobDialog(true)}
+                className="flex min-h-[150px] items-center justify-center rounded-2xl border border-dashed border-sky-400/40 bg-slate-900/40 px-4 py-6 text-sm text-sky-200 hover:border-sky-300 hover:bg-slate-900/70"
+              >
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-2xl">＋</span>
+                  <span className="font-medium">New company</span>
+                  <span className="text-[11px] text-slate-400">
+                    Add another job / employer to your Tessera board.
+                  </span>
+                </div>
+              </button>
             </div>
-          </button>
+          </div>
         </div>
       </div>
-
       {/* New Company dialog */}
       {showJobDialog && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">

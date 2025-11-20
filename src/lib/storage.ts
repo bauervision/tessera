@@ -10,6 +10,7 @@ import type {
   Project,
   Job,
   ProjectBrief,
+  MeetingRecurrence,
 } from "./types";
 
 //---------------Sessions--------------
@@ -271,4 +272,170 @@ export function upsertBriefForProject(
   const next = [brief, ...rest];
   saveAllBriefs(next);
   return brief;
+}
+
+import type { Meeting } from "./types";
+
+const MEETINGS_KEY = "tessera.meetings.v1";
+
+function loadMeetingsInternal(): Meeting[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MEETINGS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as Meeting[];
+  } catch {
+    return [];
+  }
+}
+
+function saveMeetingsInternal(meetings: Meeting[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MEETINGS_KEY, JSON.stringify(meetings));
+}
+
+export function getAllMeetings(): Meeting[] {
+  return loadMeetingsInternal().sort((a, b) =>
+    (a.dateIso + (a.time || "")).localeCompare(b.dateIso + (b.time || ""))
+  );
+}
+
+export function getUpcomingMeetings(limit = 10): Meeting[] {
+  const all = loadMeetingsInternal();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const horizon = new Date(today.getTime() + 30 * DAY_MS); // next 30 days
+
+  const instances: Meeting[] = [];
+
+  for (const m of all) {
+    const rec = normalizedRecurrence(m.recurrence);
+    const start = dateFromIso(m.dateIso);
+    if (!start) continue;
+
+    if (rec === "none") {
+      // one-off meeting in the future (within horizon)
+      const d = start;
+      if (d >= today && d <= horizon) {
+        instances.push(m);
+      }
+      continue;
+    }
+
+    // recurring: find first occurrence >= today
+    let stepDays = rec === "weekly" ? 7 : rec === "biweekly" ? 14 : 30; // monthly ≈ 30 days
+
+    let current = new Date(start.getTime());
+    // advance to today or later
+    while (current < today) {
+      current = new Date(current.getTime() + stepDays * DAY_MS);
+    }
+
+    // add occurrences until horizon
+    while (current <= horizon) {
+      instances.push({
+        ...m,
+        // override dateIso so each instance is dated correctly
+        dateIso: current.toISOString().slice(0, 10),
+      });
+
+      current = new Date(current.getTime() + stepDays * DAY_MS);
+    }
+  }
+
+  return instances
+    .sort((a, b) => {
+      const ad = a.dateIso.localeCompare(b.dateIso);
+      if (ad !== 0) return ad;
+      return (a.time || "").localeCompare(b.time || "");
+    })
+    .slice(0, limit);
+}
+
+export function getMeetingsForProject(projectId: string): Meeting[] {
+  return getAllMeetings().filter((m) => m.projectId === projectId);
+}
+
+export function addMeeting(input: {
+  title: string;
+  dateIso: string;
+  time: string | null;
+  location: string | null;
+  jobId: string;
+  recurrence?: MeetingRecurrence;
+}): Meeting {
+  const existing = loadMeetingsInternal();
+
+  const meeting: Meeting = {
+    id: crypto.randomUUID(),
+    title: input.title,
+    dateIso: input.dateIso,
+    time: input.time,
+    location: input.location,
+    jobId: input.jobId,
+    recurrence: input.recurrence ?? "none",
+  };
+
+  const next = [...existing, meeting];
+  saveMeetingsInternal(next);
+  return meeting;
+}
+
+export function deleteMeeting(id: string) {
+  const existing = loadMeetingsInternal();
+  const next = existing.filter((m) => m.id !== id);
+  saveMeetingsInternal(next);
+}
+
+export function getMeetingsForDate(dateIso: string): Meeting[] {
+  const all = loadMeetingsInternal();
+  const target = dateFromIso(dateIso);
+  if (!target) return [];
+
+  return all
+    .filter((m) => {
+      const start = dateFromIso(m.dateIso);
+      if (!start) return false;
+
+      const rec = normalizedRecurrence(m.recurrence);
+      if (rec === "none") {
+        return m.dateIso === dateIso;
+      }
+
+      // only repeat on or after the start date
+      const diffDays = Math.floor(
+        (target.getTime() - start.getTime()) / DAY_MS
+      );
+      if (diffDays < 0) return false;
+
+      switch (rec) {
+        case "weekly":
+          return diffDays % 7 === 0;
+        case "biweekly":
+          return diffDays % 14 === 0;
+        case "monthly":
+          // simple: same day-of-month (you can get fancier later)
+          return start.getDate() === target.getDate();
+        default:
+          return false;
+      }
+    })
+    .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+}
+
+function dateFromIso(ymd: string): Date | null {
+  const [yStr, mStr, dStr] = ymd.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  const d = Number(dStr);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function normalizedRecurrence(r?: MeetingRecurrence): MeetingRecurrence {
+  return r ?? "none";
 }

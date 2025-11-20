@@ -42,3 +42,16 @@ export type ProjectBrief = {
   checklist: string;
   updatedAt: string; // ISO
 };
+
+export type MeetingRecurrence = "none" | "weekly" | "biweekly" | "monthly";
+
+export type Meeting = {
+  id: string;
+  projectId?: string | null; // optional link to a project
+  jobId?: string | null; // optional link to a job/client
+  title: string;
+  dateIso: string; // "2025-11-20"
+  time?: string | null; // "14:30" (24h string) or null
+  location?: string | null;
+  recurrence?: MeetingRecurrence;
+};
