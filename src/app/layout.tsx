@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 import { Navbar } from "@/components/ui/Navbar";
+import { AnimatedBackgroundSkin } from "@/components/ui/AnimatedBackgroundSkin";
 
 export const metadata: Metadata = {
   title: "Tessera",
@@ -15,6 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-slate-950 text-slate-50">
+        <AnimatedBackgroundSkin />
         <div className="flex min-h-screen flex-col">
           <Navbar />
 

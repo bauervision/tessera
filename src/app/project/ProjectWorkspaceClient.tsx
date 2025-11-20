@@ -24,6 +24,8 @@ import { Toast, type ToastVariant } from "@/components/ui/Toast";
 import { priorityFromLastActivity } from "@/lib/priority";
 import { formatRelative, parseBriefFromText, priorityLabel } from "./helpers";
 import { DatePicker } from "@/components/ui/DatePicker";
+import { TomorrowSidebar } from "@/components/TomorrowSidebar";
+import { SavedBrief } from "@/components/SavedBrief";
 
 export default function ProjectWorkspaceClient() {
   const params = useSearchParams();
@@ -35,6 +37,39 @@ export default function ProjectWorkspaceClient() {
   const [sessions, setSessions] = useState<Session[]>([]);
 
   const [whatIDid, setWhatIDid] = useState("");
+
+  const [completedTomorrow, setCompletedTomorrow] = useState<string[]>([]);
+
+  const toggleTomorrowItem = (task: string) => {
+    setCompletedTomorrow((prev) => {
+      const isCurrentlyDone = prev.includes(task);
+      const isNowDone = !isCurrentlyDone;
+
+      const next = isNowDone ? [...prev, task] : prev.filter((t) => t !== task);
+
+      // Keep "What did you work on?" in sync with this one task
+      setWhatIDid((prevText) => {
+        const lines = prevText.split("\n");
+        const trimmedTask = task.trim();
+
+        // Remove any line that exactly equals this task
+        const filtered = lines.filter((line) => line.trim() !== trimmedTask);
+
+        if (isNowDone) {
+          // We're marking it done → append it at the bottom
+          const base = filtered.join("\n").replace(/\s+$/g, "");
+          if (!base) return trimmedTask;
+          return `${base}\n${trimmedTask}`;
+        }
+
+        // We're unchecking it → just return the text without that line
+        return filtered.join("\n");
+      });
+
+      return next;
+    });
+  };
+
   const [whereLeftOff, setWhereLeftOff] = useState("");
   const [nextMovesText, setNextMovesText] = useState("");
 
@@ -158,76 +193,13 @@ export default function ProjectWorkspaceClient() {
       {/* 3-column page layout */}
       <div className="flex gap-4  pb-8 pt-4">
         {/* LEFT COLUMN: real aside, hugging left edge */}
-        <aside className="hidden lg:flex w-[420px] max-h-[calc(100vh-190px)]">
-          <div className="flex h-full w-full flex-col overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/70 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-100">
-                  Saved brief
-                </h2>
-                <p className="mt-1 text-xs text-slate-400">
-                  Read-only snapshot of the last saved project brief.
-                </p>
-              </div>
-              <div className="text-right text-[11px] text-slate-400">
-                {brief?.updatedAt ? (
-                  <>
-                    <span className="font-medium text-slate-200">
-                      Last updated:
-                    </span>{" "}
-                    {new Date(brief.updatedAt).toLocaleString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </>
-                ) : (
-                  <span className="italic text-slate-500">Not saved yet</span>
-                )}
-              </div>
-            </div>
-
-            {brief ? (
-              <div className="mt-3 space-y-2 text-xs">
-                {[
-                  { key: "purpose", label: "Purpose" },
-                  { key: "capabilities", label: "Current capabilities" },
-                  { key: "workPlan", label: "Tomorrow's work plan" },
-                  { key: "vision", label: "Long-term vision" },
-                  { key: "checklist", label: "Actionable checklist" },
-                ].map((sec) => {
-                  const value = (brief as any)[sec.key] as string;
-                  if (!value) return null;
-                  return (
-                    <details
-                      key={sec.key}
-                      className="group rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2"
-                      open={sec.key === "purpose"}
-                    >
-                      <summary className="flex cursor-pointer list-none items-center justify-between text-[11px] text-slate-100">
-                        <span>{sec.label}</span>
-                        <span className="ml-2 text-[10px] text-slate-500 group-open:hidden">
-                          ▼
-                        </span>
-                        <span className="ml-2 hidden text-[10px] text-slate-500 group-open:inline">
-                          ▲
-                        </span>
-                      </summary>
-                      <div className="mt-2 whitespace-pre-wrap text-[11px] text-slate-200">
-                        {value}
-                      </div>
-                    </details>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="mt-3 text-xs text-slate-500">
-                No brief saved yet. Paste a brief or write one in the editor and
-                click <span className="font-semibold">Save brief</span>.
-              </p>
-            )}
-          </div>
+        <aside className="hidden lg:flex w-[360px] h-[calc(100vh-190px)]">
+          <TomorrowSidebar
+            brief={brief}
+            lastSession={lastSession}
+            completed={completedTomorrow}
+            onToggle={toggleTomorrowItem}
+          />
         </aside>
 
         {/* CENTER COLUMN: main content, centered */}
@@ -731,8 +703,10 @@ export default function ProjectWorkspaceClient() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: reserved for future panels */}
-        <div className="hidden xl:block w-[260px]" />
+        {/* RIGHT COLUMN: Saved brief */}
+        <aside className="hidden xl:flex w-[360px] h-[calc(100vh-190px)]">
+          <SavedBrief brief={brief} />
+        </aside>
       </div>
 
       {/* Editing Modal */}

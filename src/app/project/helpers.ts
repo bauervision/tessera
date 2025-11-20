@@ -29,12 +29,12 @@ export function formatRelative(iso: string | null | undefined): string {
 export function priorityLabel(p: Priority) {
   switch (p) {
     case "hot":
-      return "🔥 High priority";
+      return "🔥 Abandoned";
     case "warm":
-      return "🟡 Medium priority";
+      return "🟡 Needs Attention";
     case "cool":
     default:
-      return "🟢 Low priority";
+      return "🟢 Recent Progress";
   }
 }
 
