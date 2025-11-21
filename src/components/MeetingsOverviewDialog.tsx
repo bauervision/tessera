@@ -2,102 +2,41 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getMeetingsForDate, loadJobsAndProjects } from "@/lib/storage";
-import type { Meeting, Job } from "@/lib/types";
-
-type ViewMode = "week" | "month";
-type MonthCell = {
-  date: Date;
-  iso: string;
-  meetings: Meeting[];
-} | null;
-
-function fromYmdLocal(ymd: string): Date {
-  const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-}
-
-function toYmdLocal(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-function startOfWeek(date: Date): Date {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = d.getDay(); // 0=Sun..6=Sat
-  const offset = (day + 6) % 7; // Mon=0, Tue=1, ... Sun=6
-  d.setDate(d.getDate() - offset);
-  return d; // Monday
-}
-
-function formatDayLabel(d: Date) {
-  return d.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatMonthLabel(d: Date) {
-  return d.toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function formatTimeLabel(time: string | null | undefined) {
-  if (!time) return "";
-  const [hStr, mStr] = time.split(":");
-  const h = Number(hStr);
-  const m = Number(mStr);
-  const date = new Date();
-  date.setHours(h, m, 0, 0);
-  return date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function buildMeetingDate(m: Meeting): Date | null {
-  if (!m.dateIso) return null;
-
-  const base = fromYmdLocal(m.dateIso);
-  if (m.time) {
-    const [hStr, minStr] = m.time.split(":");
-    const h = Number(hStr) || 0;
-    const min = Number(minStr) || 0;
-    base.setHours(h, min, 0, 0);
-  }
-  return base;
-}
-
-function formatTimeUntil(m: Meeting): string | null {
-  const dt = buildMeetingDate(m);
-  if (!dt) return null;
-  const diffMs = dt.getTime() - Date.now();
-  const diffMinutes = Math.round(diffMs / 60000);
-
-  if (diffMinutes <= 0) return null;
-  if (diffMinutes < 60) {
-    return `In ${diffMinutes} minute${diffMinutes === 1 ? "" : "s"}`;
-  }
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `In ${diffHours} hour${diffHours === 1 ? "" : "s"}`;
-  }
-  const diffDays = Math.round(diffHours / 24);
-  return `In ${diffDays} day${diffDays === 1 ? "" : "s"}`;
-}
+import type { Meeting, Job, ViewMode, MonthCell } from "@/lib/types";
+import { MonthDayCell } from "./ui/MonthDayCell";
+import {
+  formatDayLabel,
+  formatMonthLabel,
+  formatTimeLabel,
+  formatTimeUntil,
+  fromYmdLocal,
+  startOfWeek,
+  toYmdLocal,
+} from "@/lib/calendarHelpers";
+import { MeetingCard } from "./ui/Meetingcard";
 
 export function MeetingsOverviewDialog({
   open,
   onClose,
   anchorDateIso,
+  onCancelMeeting,
+  onRescheduleMeeting,
+  refreshKey = 0,
 }: {
   open: boolean;
   onClose: () => void;
   anchorDateIso: string;
+  onCancelMeeting?: (m: Meeting) => void;
+  onRescheduleMeeting?: (m: Meeting) => void;
+  refreshKey?: number;
 }) {
   const [mode, setMode] = useState<ViewMode>("week");
   const [viewDate, setViewDate] = useState(() => fromYmdLocal(anchorDateIso));
+  const [selectedDay, setSelectedDay] = useState<{
+    date: Date;
+    iso: string;
+    meetings: Meeting[];
+  } | null>(null);
 
   // keep in sync when the anchor changes from outside
   useEffect(() => {
@@ -141,7 +80,7 @@ export function MeetingsOverviewDialog({
       const meetings = getMeetingsForDate(iso);
       return { date: d, iso, meetings };
     });
-  }, [viewDate, open]);
+  }, [viewDate, open, refreshKey]);
 
   // Build month view data
   const monthGrid = useMemo(() => {
@@ -185,11 +124,20 @@ export function MeetingsOverviewDialog({
     }
 
     return weeks;
-  }, [viewDate, open]);
+  }, [viewDate, open, refreshKey]);
 
   const switchToWeek = () => {
     setMode("week");
-    setViewDate((prev) => startOfWeek(prev)); // clamp to Monday of that week
+    setViewDate((prev) => {
+      // If the visible month matches the anchor month,
+      // use the anchorDate's week; otherwise use the visible month's week.
+      const sameMonth =
+        prev.getFullYear() === anchorDate.getFullYear() &&
+        prev.getMonth() === anchorDate.getMonth();
+
+      const base = sameMonth ? anchorDate : prev;
+      return startOfWeek(base);
+    });
   };
 
   const switchToMonth = () => {
@@ -204,7 +152,7 @@ export function MeetingsOverviewDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="flex w-full max-w-5xl flex-col rounded-3xl border border-white/15 bg-slate-950/95 p-4 text-xs text-slate-100 shadow-[0_30px_90px_rgba(0,0,0,0.8)]">
+      <div className="flex w-[95vw] max-w-6xl h-[80vh] flex-col rounded-3xl border border-white/15 bg-slate-950/95 p-4 text-xs text-slate-100 shadow-[0_30px_90px_rgba(0,0,0,0.8)]">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
           <div>
@@ -314,37 +262,13 @@ export function MeetingsOverviewDialog({
                           ? jobsById.get(m.jobId)
                           : undefined;
                         return (
-                          <li
-                            key={m.id + iso}
-                            className="rounded-lg border border-slate-700 bg-slate-950/80 px-2 py-1.5"
-                          >
-                            {company && (
-                              <div className="mb-0.5 inline-flex items-center rounded-full border border-slate-600 bg-slate-900 px-2 py-0.5 text-[9px] text-slate-200">
-                                {company.name}
-                              </div>
-                            )}
-                            <div className="flex items-baseline justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="truncate font-semibold text-slate-50">
-                                  {m.title}
-                                </div>
-                                {formatTimeUntil(m) && (
-                                  <div className="mt-0.5 text-[10px] text-sky-300">
-                                    {formatTimeUntil(m)}
-                                  </div>
-                                )}
-                                {m.location && (
-                                  <div className="mt-0.5 line-clamp-1 text-[10px] text-slate-400">
-                                    {m.location}
-                                  </div>
-                                )}
-                              </div>
-                              {m.time && (
-                                <div className="shrink-0 font-mono text-[11px] text-sky-300">
-                                  {formatTimeLabel(m.time)}
-                                </div>
-                              )}
-                            </div>
+                          <li key={m.id + iso}>
+                            <MeetingCard
+                              meeting={m}
+                              company={company}
+                              onCancel={onCancelMeeting}
+                              onReschedule={onRescheduleMeeting}
+                            />
                           </li>
                         );
                       })}
@@ -354,84 +278,109 @@ export function MeetingsOverviewDialog({
               ))}
             </div>
           ) : (
-            // Month view
-            <div className="space-y-2">
+            <div className="flex h-full flex-col space-y-2">
+              {/* weekday header */}
               <div className="grid grid-cols-5 gap-1 text-center text-[10px] text-slate-500">
                 {["Mo", "Tu", "We", "Th", "Fr"].map((d) => (
                   <div key={d}>{d}</div>
                 ))}
               </div>
 
-              <div className="grid grid-cols-5 gap-1 text-[11px]">
-                {monthGrid.map((week, wi) =>
-                  week.map((cell, ci) => {
-                    if (!cell?.date) {
+              {/* weeks */}
+              <div className="flex flex-1 flex-col gap-1">
+                {monthGrid.map((week, wi) => (
+                  <div
+                    key={wi}
+                    className="grid flex-1 min-h-20 md:min-h-24 xl:min-h-28 grid-cols-5 gap-1 text-[11px]"
+                  >
+                    {week.map((cell, ci) => {
+                      if (!cell?.date) {
+                        return (
+                          <div
+                            key={`${wi}-${ci}`}
+                            className="h-full rounded-lg border border-slate-900 bg-slate-950/40"
+                          />
+                        );
+                      }
+
+                      const { date, iso, meetings } = cell;
+
                       return (
-                        <div
-                          key={`${wi}-${ci}`}
-                          className="h-[72px] rounded-lg border border-slate-900 bg-slate-950/40"
+                        <MonthDayCell
+                          key={`${wi}-${ci}-${iso}`}
+                          date={date}
+                          iso={iso}
+                          meetings={meetings}
+                          jobsById={jobsById}
+                          onClick={() =>
+                            setSelectedDay({
+                              date,
+                              iso,
+                              meetings,
+                            })
+                          }
                         />
                       );
-                    }
-                    const { date, iso, meetings } = cell;
-                    const companyNames = [
-                      ...new Set(
-                        meetings
-                          .map((m) =>
-                            m.jobId ? jobsById.get(m.jobId)?.name : undefined
-                          )
-                          .filter((name): name is string => Boolean(name))
-                      ),
-                    ];
-
-                    return (
-                      <div
-                        key={`${wi}-${ci}-${iso}`}
-                        className="flex h-[72px] flex-col rounded-lg border border-slate-800 bg-slate-950/80 p-1"
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="text-[10px] text-slate-300">
-                            {date.getDate()}
-                          </span>
-                          {meetings.length > 0 && (
-                            <span className="text-[9px] text-sky-300">
-                              {meetings.length} mtg
-                            </span>
-                          )}
-                        </div>
-
-                        {meetings.length > 0 && (
-                          <div className="mt-0.5 space-y-0.5">
-                            {meetings.slice(0, 2).map((m) => (
-                              <div
-                                key={m.id}
-                                className="truncate text-[9px] text-slate-100"
-                              >
-                                {m.time ? `${formatTimeLabel(m.time)} ` : ""}·{" "}
-                                {m.title}
-                              </div>
-                            ))}
-                            {meetings.length > 2 && (
-                              <div className="text-[9px] text-slate-500">
-                                +{meetings.length - 2} more
-                              </div>
-                            )}
-                            {companyNames.length > 0 && (
-                              <div className="text-[9px] text-slate-500 line-clamp-1">
-                                {companyNames.join(" · ")}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {selectedDay && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-4">
+          <div className="flex w-full max-w-lg flex-col rounded-3xl border border-slate-700 bg-slate-950/95 p-4 text-xs text-slate-100 shadow-[0_24px_70px_rgba(0,0,0,0.9)]">
+            <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <div>
+                <div className="text-sm font-semibold text-slate-50">
+                  {selectedDay.date.toLocaleDateString(undefined, {
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {selectedDay.meetings.length} meeting
+                  {selectedDay.meetings.length === 1 ? "" : "s"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDay(null)}
+                className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1 text-[11px] text-slate-100 hover:bg-slate-800"
+              >
+                Close
+              </button>
+            </div>
+
+            {selectedDay.meetings.length === 0 ? (
+              <div className="py-6 text-center text-[11px] text-slate-400">
+                No meetings scheduled for this day.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {selectedDay.meetings.map((m) => {
+                  const company = m.jobId ? jobsById.get(m.jobId) : undefined;
+                  return (
+                    <MeetingCard
+                      key={m.id}
+                      meeting={m}
+                      company={company}
+                      onCancel={onCancelMeeting}
+                      onReschedule={onRescheduleMeeting}
+                      className="border-slate-700"
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -314,50 +314,6 @@ export function QuickMeetingsWidget() {
               </button>
             </div>
           </form>
-
-          {/* Upcoming mini-agenda */}
-          <div className="mt-3 border-t border-slate-700/60 pt-2">
-            <div className="mb-1 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-              Upcoming
-            </div>
-            {upcoming.length === 0 ? (
-              <div className="text-[11px] text-slate-500">
-                No upcoming meetings logged yet.
-              </div>
-            ) : (
-              <ul className="space-y-1.5 text-[11px]">
-                {upcoming.map((m) => {
-                  const company = jobs.find((j) => j.id === m.jobId);
-                  return (
-                    <li
-                      key={m.id}
-                      className="rounded-lg border border-slate-700/80 bg-slate-950/70 px-2 py-1.5"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-slate-100 line-clamp-1">
-                          {m.title}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {formatMeetingDay(m.dateIso)}{" "}
-                          {m.time ? `· ${m.time}` : ""}
-                        </span>
-                      </div>
-                      {company && (
-                        <div className="mt-0.5 text-[10px] text-slate-400 line-clamp-1">
-                          {company.name}
-                        </div>
-                      )}
-                      {m.location && (
-                        <div className="mt-0.5 text-[10px] text-slate-500 line-clamp-1">
-                          {m.location}
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
         </div>
       )}
 

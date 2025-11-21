@@ -55,3 +55,10 @@ export type Meeting = {
   location?: string | null;
   recurrence?: MeetingRecurrence;
 };
+
+export type ViewMode = "week" | "month";
+export type MonthCell = {
+  date: Date;
+  iso: string;
+  meetings: Meeting[];
+} | null;

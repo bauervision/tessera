@@ -14,7 +14,7 @@ import LastLoggedBadge from "@/components/LastLoggedBadge";
 import { priorityFromLastActivity } from "@/lib/priority";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, logout } from "@/lib/auth";
-import { DashboardMeetingsPanel } from "@/components/DashboardMeetingPanel";
+import DashboardMeetingsPanel from "@/components/DashboardMeetingPanel";
 
 const priorityVisual = (priority: Priority) => {
   switch (priority) {

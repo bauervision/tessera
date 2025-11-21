@@ -1,281 +1,226 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { DatePicker } from "@/components/ui/DatePicker";
+import { useMemo, useState } from "react";
 import {
-  deleteMeeting,
-  getMeetingsForDate,
   loadJobsAndProjects,
+  getMeetingsForDate,
+  deleteMeeting,
 } from "@/lib/storage";
-import type { Meeting, Job } from "@/lib/types";
-import { Toast, type ToastVariant } from "@/components/ui/Toast";
-import { MeetingsOverviewDialog } from "./MeetingsOverviewDialog";
+import type { Job, Meeting } from "@/lib/types";
+import { MeetingsOverviewDialog } from "@/components/MeetingsOverviewDialog";
+import {
+  addDays,
+  formatDayShort,
+  formatTimeLabel,
+  todayIso,
+} from "@/lib/calendarHelpers";
+import { MeetingCard } from "./ui/Meetingcard";
 
-// -----------------Helpers -----------------------
+export default function DashboardMeetingsPanel() {
+  const [anchorDateIso, setAnchorDateIso] = useState<string>(todayIso);
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { jobs } = useMemo(() => loadJobsAndProjects(), [refreshKey]);
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+  const jobsById = useMemo(() => {
+    const map = new Map<string, Job>();
+    jobs.forEach((j) => map.set(j.id, j));
+    return map;
+  }, [jobs]);
 
-function formatTimeLabel(time?: string | null): string {
-  if (!time) return "";
-  const [hStr, mStr] = time.split(":");
-  let h = Number(hStr) || 0;
-  const m = Number(mStr) || 0;
-  const period = h >= 12 ? "PM" : "AM";
-  h = h % 12;
-  if (h === 0) h = 12;
-  return `${h}:${String(m).padStart(2, "0")} ${period}`;
-}
+  const today = anchorDateIso;
+  const upcomingIsos = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(today, i)),
+    [today]
+  );
 
-function formatDateLabel(ymd: string): string {
-  if (!ymd) return "";
-  const d = new Date(ymd + "T00:00:00");
-  return d.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
+  const meetingsByDate = useMemo(() => {
+    const map = new Map<string, Meeting[]>();
+    upcomingIsos.forEach((iso) => {
+      map.set(iso, getMeetingsForDate(iso));
+    });
+    return map;
+  }, [upcomingIsos, refreshKey]);
 
-function buildMeetingDate(m: Meeting): Date | null {
-  if (!m.dateIso) return null;
+  const todayMeetings = useMemo(
+    () => getMeetingsForDate(todayIso()),
+    [todayIso, refreshKey]
+  );
+  const totalUpcoming = Array.from(meetingsByDate.values()).reduce(
+    (sum, list) => sum + list.length,
+    0
+  );
 
-  const [yStr, mStr, dStr] = m.dateIso.split("-");
-  const year = Number(yStr);
-  const month = Number(mStr);
-  const day = Number(dStr);
-  if (!year || !month || !day) return null;
-
-  let hours = 9;
-  let minutes = 0;
-
-  if (m.time) {
-    const [hStr, minStr] = m.time.split(":");
-    hours = Number(hStr) || 0;
-    minutes = Number(minStr) || 0;
+  function handleCancelMeeting(m: Meeting) {
+    deleteMeeting(m.id);
+    setRefreshKey((k) => k + 1);
   }
 
-  // local time
-  return new Date(year, month - 1, day, hours, minutes, 0, 0);
-}
-
-function formatTimeUntil(m: Meeting): string | null {
-  const dt = buildMeetingDate(m);
-  if (!dt) return null;
-
-  const diffMs = dt.getTime() - Date.now();
-  const diffMinutes = Math.round(diffMs / 60000);
-
-  if (diffMinutes <= 0) {
-    // already started or in the past – you can tweak this if you want
-    return null;
+  function handleRescheduleMeeting(m: Meeting) {
+    // You haven't implemented reschedule yet, so keep this as a stub for now
+    console.log("Reschedule meeting", m.id);
+    // Later: open a reschedule dialog or call an update helper,
+    // then bump refreshKey
+    // setRefreshKey((k) => k + 1);
   }
-
-  if (diffMinutes < 60) {
-    return `In ${diffMinutes} minute${diffMinutes === 1 ? "" : "s"}`;
-  }
-
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `In ${diffHours} hour${diffHours === 1 ? "" : "s"}`;
-  }
-
-  const diffDays = Math.round(diffHours / 24);
-  return `In ${diffDays} day${diffDays === 1 ? "" : "s"}`;
-}
-
-//-----------------Component -----------------------------//
-
-export function DashboardMeetingsPanel() {
-  const [selectedDate, setSelectedDate] = useState<string>(todayIso);
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [showOverview, setShowOverview] = useState(false);
-
-  const [toast, setToast] = useState<{
-    message: string;
-    variant?: ToastVariant;
-  } | null>(null);
-
-  const showToast = (message: string, variant: ToastVariant = "info") => {
-    setToast({ message, variant });
-  };
-
-  // load companies once
-  useEffect(() => {
-    const { jobs } = loadJobsAndProjects();
-    setJobs(jobs);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const refresh = () => {
-      setMeetings(getMeetingsForDate(selectedDate));
-    };
-
-    refresh(); // initial load
-
-    window.addEventListener("tessera:meetings-updated", refresh);
-    return () => {
-      window.removeEventListener("tessera:meetings-updated", refresh);
-    };
-  }, [selectedDate]);
-
-  const handleCancel = (meetingId: string) => {
-    deleteMeeting(meetingId);
-
-    // local refresh
-    setMeetings(getMeetingsForDate(selectedDate));
-
-    // notify other listeners (like the floating widget)
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("tessera:meetings-updated"));
-    }
-
-    showToast("Meeting cancelled", "info");
-  };
-
-  const handleReschedule = (m: Meeting) => {
-    // For now, just a placeholder; we can wire a real reschedule flow later.
-    showToast("Reschedule flow not implemented yet", "info");
-  };
-
-  const selectedLabel = formatDateLabel(selectedDate);
 
   return (
-    <aside className="hidden lg:flex w-[320px] flex-col rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-xs text-slate-200">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-100">Calendar</h2>
-          <p className="mt-0.5 text-[11px] text-slate-400">
-            Pick a day and see your meetings.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowOverview(true)}
-          className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1 text-[11px] text-slate-100 hover:bg-slate-800"
-        >
-          View all
-        </button>
-      </div>
-
-      {/* Small calendar */}
-      <div className="mt-3">
-        <DatePicker value={selectedDate} onChange={setSelectedDate} />
-      </div>
-
-      {/* Day agenda */}
-      <div className="mt-4 border-t border-white/10 pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-            {selectedLabel || "Selected day"}
-          </span>
-          <span className="text-[11px] text-slate-400">
-            {meetings.length === 0
-              ? "No meetings"
-              : `${meetings.length} meeting${meetings.length > 1 ? "s" : ""}`}
-          </span>
+    <>
+      <section className="flex flex-col rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-xs text-slate-100 shadow-[0_20px_60px_rgba(0,0,0,0.7)]">
+        {/* Header row */}
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-50">Calendar</h2>
+            <p className="text-[11px] text-slate-400">
+              Pick a day and see your meetings. Use the overview to scan across
+              weeks and months.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAnchorDateIso(todayIso());
+                setOverviewOpen(true);
+              }}
+              className="rounded-full border border-sky-500/60 bg-sky-500/10 px-3 py-1 text-[11px] text-sky-200 hover:bg-sky-500/20"
+            >
+              View calendar
+            </button>
+          </div>
         </div>
 
-        {meetings.length === 0 ? (
-          <p className="mt-2 text-[11px] text-slate-500">
-            Nothing scheduled for this day yet. Use the bottom-right meetings
-            button to add one.
-          </p>
-        ) : (
-          <ul className="mt-2 space-y-2 text-[11px]">
-            {meetings.map((m) => {
-              const company = m.jobId
-                ? jobs.find((j) => j.id === m.jobId)
-                : undefined;
+        {/* Today summary */}
+        <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-950/80 p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Today
+              </div>
+              <div className="text-[13px] font-medium text-slate-50">
+                {formatDayShort(today)}
+              </div>
+            </div>
+            <div className="text-right text-[11px] text-slate-400">
+              {todayMeetings.length === 0
+                ? "No meetings today"
+                : `${todayMeetings.length} meeting${
+                    todayMeetings.length === 1 ? "" : "s"
+                  }`}
+            </div>
+          </div>
+
+          {todayMeetings.map((m) => {
+            const company = m.jobId ? jobsById.get(m.jobId) : undefined;
+            return (
+              <li key={m.id}>
+                <MeetingCard
+                  meeting={m}
+                  company={company}
+                  onCancel={handleCancelMeeting}
+                  onReschedule={handleRescheduleMeeting}
+                />
+              </li>
+            );
+          })}
+        </div>
+
+        {/* Upcoming list */}
+        <div className="mt-1 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Next 7 days
+            </div>
+            <div className="text-[11px] text-slate-400">
+              {totalUpcoming} total meeting{totalUpcoming === 1 ? "" : "s"}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 text-[11px]">
+            {upcomingIsos.map((iso) => {
+              const list = meetingsByDate.get(iso) ?? [];
+              if (list.length === 0) {
+                return null;
+              }
+              const [y, m, d] = iso.split("-").map(Number);
+              const dateObj = new Date(y, (m || 1) - 1, d || 1);
+              const label = dateObj.toLocaleDateString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+              });
 
               return (
-                <li
-                  key={m.id}
-                  className="group relative mt-5 overflow-visible rounded-xl border border-white/12 bg-slate-950/80 px-3 pt-4 pb-3 cursor-pointer"
+                <div
+                  key={iso}
+                  className="rounded-xl border border-slate-800 bg-slate-950/90 p-2"
                 >
-                  {/* Fieldset-style company label sitting on the border */}
-                  <div className="pointer-events-none absolute -top-2 left-4 inline-flex items-center rounded-full border border-slate-600 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-200">
-                    {company ? company.name : "No specific company"}
-                  </div>
-
-                  {/* Main card content */}
-                  <div className="relative space-y-2">
-                    <div className="flex min-h-10 items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-[12px] font-semibold text-slate-50">
-                          {m.title}
-                        </div>
-
-                        {/* Time-until label */}
-                        {formatTimeUntil(m) && (
-                          <div className="mt-0.5 text-[10px] text-sky-300">
-                            {formatTimeUntil(m)}
-                          </div>
-                        )}
-
-                        {m.location && (
-                          <div className="mt-0.5 line-clamp-1 text-[10px] text-slate-400">
-                            {m.location}
-                          </div>
-                        )}
-                      </div>
-
-                      {m.time && (
-                        <div className="shrink-0 self-center font-mono text-[15px] text-sky-300">
-                          {formatTimeLabel(m.time)}
-                        </div>
-                      )}
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-medium text-slate-100">
+                      {label}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnchorDateIso(iso);
+                        setOverviewOpen(true);
+                      }}
+                      className="text-[10px] text-sky-300 hover:text-sky-200"
+                    >
+                      View day
+                    </button>
                   </div>
 
-                  {/* Hover veil + centered actions (keep your existing version if you already have it) */}
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-                    <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" />
-                    <div className="relative z-10 flex gap-3">
-                      <button
-                        type="button"
-                        className="pointer-events-auto rounded-full border border-slate-500 bg-slate-900 px-3 py-1 text-[11px] text-slate-100 hover:bg-slate-800"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleReschedule(m);
-                        }}
-                      >
-                        Reschedule
-                      </button>
-                      <button
-                        type="button"
-                        className="pointer-events-auto rounded-full border border-rose-500/70 bg-rose-500/15 px-3 py-1 text-[11px] text-rose-100 hover:bg-rose-500/40"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCancel(m.id);
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </li>
+                  <ul className="space-y-1">
+                    {list.slice(0, 3).map((m) => {
+                      const company = m.jobId
+                        ? jobsById.get(m.jobId)
+                        : undefined;
+                      return (
+                        <li
+                          key={m.id}
+                          className="flex items-baseline justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-[11px] text-slate-100">
+                              {m.title}
+                            </div>
+                            {company && (
+                              <div className="text-[10px] text-slate-500">
+                                {company.name}
+                              </div>
+                            )}
+                          </div>
+                          {m.time && (
+                            <div className="shrink-0 font-mono text-[10px] text-sky-300">
+                              {formatTimeLabel(m.time)}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                    {list.length > 3 && (
+                      <li className="text-[10px] text-slate-500">
+                        +{list.length - 3} more
+                      </li>
+                    )}
+                  </ul>
+                </div>
               );
             })}
-          </ul>
-        )}
-      </div>
+          </div>
+        </div>
+      </section>
 
+      {/* Overview dialog (week/month calendar) */}
       <MeetingsOverviewDialog
-        open={showOverview}
-        onClose={() => setShowOverview(false)}
-        anchorDateIso={selectedDate}
+        open={overviewOpen}
+        onClose={() => setOverviewOpen(false)}
+        anchorDateIso={anchorDateIso}
+        onCancelMeeting={handleCancelMeeting}
+        onRescheduleMeeting={handleRescheduleMeeting}
+        refreshKey={refreshKey}
       />
-
-      {toast && (
-        <Toast
-          message={toast.message}
-          variant={toast.variant}
-          onClose={() => setToast(null)}
-        />
-      )}
-    </aside>
+    </>
   );
 }
