@@ -9,6 +9,7 @@ import {
   addCustomProject,
   getSessionsForProject,
   getTotalHoursForProject,
+  updateCustomJob,
 } from "@/lib/storage";
 import LastLoggedBadge from "@/components/LastLoggedBadge";
 import { priorityFromLastActivity } from "@/lib/priority";
@@ -80,6 +81,7 @@ export default function DashboardClient() {
   const [projectName, setProjectName] = useState("");
   const [projectCode, setProjectCode] = useState("");
   const [projectPriority, setProjectPriority] = useState<Priority>("warm");
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
 
   useEffect(() => {
     const { jobs, projects } = loadJobsAndProjects();
@@ -95,13 +97,27 @@ export default function DashboardClient() {
 
   const handleCreateCompany = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!companyName.trim()) return;
-    addCustomJob({
-      name: companyName.trim(),
-      label: companyLabel.trim() || "New company",
-    });
+    const name = companyName.trim();
+    const label = companyLabel.trim();
+    if (!name) return;
+
+    if (editingJob) {
+      // Update existing custom company
+      updateCustomJob(editingJob.id, {
+        name,
+        label: label || editingJob.label,
+      });
+    } else {
+      // Create new company
+      addCustomJob({
+        name,
+        label: label || "New company",
+      });
+    }
+
     setCompanyName("");
     setCompanyLabel("");
+    setEditingJob(null);
     setShowJobDialog(false);
     refreshJobsProjects();
   };
@@ -143,8 +159,9 @@ export default function DashboardClient() {
           </div>
 
           <div className="mt-4 flex gap-4">
-            {/* NEW left calendar panel */}
+            {/* left calendar panel */}
             <DashboardMeetingsPanel />
+
             {/* Center Panel */}
             <div className="grid gap-4 md:grid-cols-2">
               {jobs.map((job) => {
@@ -166,13 +183,27 @@ export default function DashboardClient() {
                         <button
                           type="button"
                           onClick={() => {
+                            setEditingJob(job);
+                            setCompanyName(job.name);
+                            setCompanyLabel(job.label ?? "");
+                            setShowJobDialog(true);
+                          }}
+                          className="rounded-full border border-slate-500/40 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
                             setProjectJobId(job.id);
                             setShowProjectDialog(true);
                           }}
                           className="text-[11px] rounded-full border border-sky-400/40 bg-sky-500/10 px-2.5 py-1 text-sky-100 hover:bg-sky-500/25"
                         >
-                          + New project
+                          +
                         </button>
+
                         <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
                           {job.status === "active" ? "Active" : "Paused"}
                         </span>
@@ -232,10 +263,6 @@ export default function DashboardClient() {
                                       )}
                                     </div>
                                   </div>
-
-                                  <span className="shrink-0 text-xs rounded-full border border-sky-400/60 bg-sky-500/15 px-3 py-1 text-sky-100 transition-colors group-hover:bg-sky-500/35">
-                                    Open workspace
-                                  </span>
                                 </div>
                               </div>
                             </Link>
@@ -247,7 +274,7 @@ export default function DashboardClient() {
                 );
               })}
 
-              {/* New Company tile */}
+              {/* Edit Company tile */}
               <button
                 type="button"
                 onClick={() => setShowJobDialog(true)}
@@ -255,7 +282,7 @@ export default function DashboardClient() {
               >
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-2xl">＋</span>
-                  <span className="font-medium">New company</span>
+                  <span className="font-medium">Company Name</span>
                   <span className="text-[11px] text-slate-400">
                     Add another job / employer to your Tessera board.
                   </span>
@@ -270,10 +297,12 @@ export default function DashboardClient() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900/95 p-4">
             <h2 className="text-sm font-semibold text-slate-100">
-              New company
+              {editingJob ? "Edit company" : "New company"}
             </h2>
             <p className="mt-1 text-xs text-slate-400">
-              This will add a new job section to your dashboard.
+              {editingJob
+                ? "Update this company’s name or label."
+                : "This will add a new job section to your dashboard."}
             </p>
 
             <form

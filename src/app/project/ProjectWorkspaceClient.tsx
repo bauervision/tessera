@@ -10,6 +10,7 @@ import {
   getBriefForProject,
   upsertBriefForProject,
   updateSession,
+  updateCustomProject,
 } from "@/lib/storage";
 
 import type {
@@ -99,6 +100,9 @@ export default function ProjectWorkspaceClient() {
   const [editWhere, setEditWhere] = useState("");
   const [editNextMoves, setEditNextMoves] = useState("");
   const [editHours, setEditHours] = useState("");
+  const [showEditProjectDialog, setShowEditProjectDialog] = useState(false);
+  const [editProjectName, setEditProjectName] = useState("");
+  const [editProjectCode, setEditProjectCode] = useState("");
 
   const showToast = (message: string, variant: ToastVariant = "success") =>
     setToast({ message, variant });
@@ -220,9 +224,23 @@ export default function ProjectWorkspaceClient() {
 
             {/* Header */}
             <header className="flex flex-wrap items-center justify-between gap-4">
-              <h1 className="text-xl font-semibold text-slate-50">
-                {project.name}
-              </h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-xl font-semibold text-slate-50">
+                  {project.name}
+                </h1>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditProjectName(project.name);
+                    setEditProjectCode(project.code || "");
+                    setShowEditProjectDialog(true);
+                  }}
+                  className="rounded-full border border-slate-500/40 bg-slate-900 px-3 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                >
+                  Edit project
+                </button>
+              </div>
 
               <div className="flex flex-col items-end gap-2 text-right text-xs">
                 <span className="rounded-full border border-sky-500/50 bg-sky-500/15 px-3 py-1 text-[11px] text-sky-100">
@@ -238,41 +256,6 @@ export default function ProjectWorkspaceClient() {
                 )}
               </div>
             </header>
-
-            {/* Mobile brief preview */}
-            <div className="block rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-xs text-slate-300 lg:hidden">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold text-slate-100">
-                  Saved brief
-                </h2>
-                <div className="text-[11px] text-slate-400">
-                  {brief?.updatedAt ? (
-                    <>
-                      <span className="font-medium text-slate-200">
-                        Last updated:
-                      </span>{" "}
-                      {new Date(brief.updatedAt).toLocaleString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </>
-                  ) : (
-                    <span className="italic text-slate-500">Not saved yet</span>
-                  )}
-                </div>
-              </div>
-              {brief ? (
-                <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-slate-200">
-                  {brief.purpose || brief.capabilities || ""}
-                </p>
-              ) : (
-                <p className="mt-2 text-slate-500">
-                  No brief saved yet. Use the Project brief tab to create one.
-                </p>
-              )}
-            </div>
 
             {/* Tabs + content */}
             <div className="flex flex-col gap-3">
@@ -699,6 +682,10 @@ export default function ProjectWorkspaceClient() {
                   </div>
                 </div>
               )}
+
+              <div className="mt-4 xl:hidden">
+                <SavedBrief brief={brief} />
+              </div>
             </div>
           </div>
         </div>
@@ -818,6 +805,82 @@ export default function ProjectWorkspaceClient() {
                 Save changes
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showEditProjectDialog && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900/95 p-4">
+            <h2 className="text-sm font-semibold text-slate-100">
+              Edit project
+            </h2>
+            <p className="mt-1 text-xs text-slate-400">
+              Update the name and short code for this project.
+            </p>
+
+            <form
+              className="mt-3 space-y-3 text-xs"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!project) return;
+
+                const name = editProjectName.trim();
+                const code = editProjectCode.trim();
+                if (!name) return;
+
+                // Only custom projects are editable; helper only touches those
+                updateCustomProject(project.id, { name, code });
+
+                const { projects: allProjects } = loadJobsAndProjects();
+                const updated =
+                  allProjects.find((p) => p.id === project.id) || null;
+                setProject(updated);
+
+                setShowEditProjectDialog(false);
+                showToast("Project updated", "success");
+              }}
+            >
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  Project name
+                </label>
+                <input
+                  className="w-full rounded-md border border-white/10 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 outline-none focus:border-sky-400"
+                  value={editProjectName}
+                  onChange={(e) => setEditProjectName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-300">
+                  Short code
+                </label>
+                <input
+                  className="w-full rounded-md border border-white/10 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 outline-none focus:border-sky-400"
+                  value={editProjectCode}
+                  onChange={(e) => setEditProjectCode(e.target.value)}
+                  placeholder="e.g., GF, KP, JV"
+                />
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditProjectDialog(false)}
+                  className="rounded-full border border-slate-500/40 bg-slate-900 px-3 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-full bg-emerald-500 px-3 py-1 text-[11px] font-medium text-slate-950 hover:bg-emerald-400"
+                >
+                  Save changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

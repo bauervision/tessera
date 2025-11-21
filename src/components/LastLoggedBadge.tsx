@@ -32,7 +32,7 @@ export default function LastLoggedBadge({
 
   return (
     <span className="text-[11px] text-slate-400">
-      Last logged: <span className="font-medium text-slate-200">{label}</span>
+      <span className="font-medium text-slate-200">{label}</span>
     </span>
   );
 }

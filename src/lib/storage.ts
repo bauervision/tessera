@@ -164,7 +164,23 @@ export function loadJobsAndProjects(): { jobs: Job[]; projects: Project[] } {
   const customJobs = getCustomJobs();
   const customProjects = getCustomProjects();
 
-  const jobs = [...jobsSeed, ...customJobs].sort((a, b) => a.order - b.order);
+  // ---- Jobs: seeds + overrides by id ----
+  const jobMap = new Map<JobId, Job>();
+
+  // start with seeded jobs
+  for (const j of jobsSeed) {
+    jobMap.set(j.id, j);
+  }
+
+  // apply custom/override jobs (same id will override seed)
+  for (const cj of customJobs) {
+    const base = jobMap.get(cj.id);
+    jobMap.set(cj.id, base ? { ...base, ...cj } : cj);
+  }
+
+  const jobs = Array.from(jobMap.values()).sort((a, b) => a.order - b.order);
+
+  // projects can stay simple for now
   const projects = [...projectsSeed, ...customProjects];
 
   return { jobs, projects };
@@ -438,4 +454,53 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function normalizedRecurrence(r?: MeetingRecurrence): MeetingRecurrence {
   return r ?? "none";
+}
+
+//----------Companies -------------------//
+
+export function updateCustomJob(id: JobId, changes: Partial<Job>): Job | null {
+  if (typeof window === "undefined") {
+    throw new Error("updateCustomJob must run in the browser");
+  }
+
+  const current = getCustomJobs();
+  const idx = current.findIndex((j) => j.id === id);
+
+  let updated: Job;
+  if (idx === -1) {
+    // No existing override yet – start from seed if we can
+    const seed = jobsSeed.find((j) => j.id === id);
+    if (!seed) return null;
+
+    updated = { ...seed, ...changes };
+    const next = [...current, updated];
+    saveCustomJobs(next);
+    return updated;
+  } else {
+    // Update existing custom/override record
+    updated = { ...current[idx], ...changes };
+    const next = [...current];
+    next[idx] = updated;
+    saveCustomJobs(next);
+    return updated;
+  }
+}
+
+export function updateCustomProject(
+  id: ProjectId,
+  changes: Partial<Project>
+): Project | null {
+  if (typeof window === "undefined") {
+    throw new Error("updateCustomProject must run in the browser");
+  }
+
+  const current = getCustomProjects();
+  const idx = current.findIndex((p) => p.id === id);
+  if (idx === -1) return null;
+
+  const updated: Project = { ...current[idx], ...changes };
+  const next = [...current];
+  next[idx] = updated;
+  saveCustomProjects(next);
+  return updated;
 }
