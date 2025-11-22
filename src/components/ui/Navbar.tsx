@@ -1,33 +1,39 @@
 "use client";
-import { useRouter } from "next/navigation";
+
+import { useRouter, usePathname } from "next/navigation";
 import { logout } from "@/lib/auth";
 
 export function Navbar() {
   const router = useRouter();
+  const pathname = usePathname();
+
+  const handleLogoClick = () => {
+    if (pathname === "/") {
+      // On home: treat click as logout
+      logout();
+      router.push("/login");
+    } else {
+      // Anywhere else: go back to dashboard
+      router.push("/");
+    }
+  };
+
   return (
-    <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-lg font-semibold tracking-[0.25em] uppercase">
-            Tessera
-          </span>
-          <span className="text-xs text-slate-400">
-            Context for every tile of your work
-          </span>
-        </div>
-        {/* Theme toggle placeholder for later */}
-        <div>
-          <button
-            type="button"
-            onClick={() => {
-              logout();
-              router.push("/login");
-            }}
-            className="rounded-full border border-slate-500/40 bg-slate-900 px-3 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
-          >
-            Logout
-          </button>
-        </div>
+    <header>
+      <div className="flex justify-center pt-4">
+        <button
+          type="button"
+          onClick={handleLogoClick}
+          className="flex items-center group"
+        >
+          <div className="flex h-26 w-26 rounded-4xl items-center justify-center transition group-hover:ring-sky-400/80 group-hover:bg-slate-900/60">
+            <img
+              src="/TesseraIcon.png"
+              alt="Tessera logo"
+              className="h-24 w-24 object-contain"
+            />
+          </div>
+        </button>
       </div>
     </header>
   );

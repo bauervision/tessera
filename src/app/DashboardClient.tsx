@@ -10,51 +10,19 @@ import {
   getSessionsForProject,
   getTotalHoursForProject,
   updateCustomJob,
+  isProjectArchived,
+  archiveProject,
+  unarchiveProject,
 } from "@/lib/storage";
 import LastLoggedBadge from "@/components/LastLoggedBadge";
-import { priorityFromLastActivity } from "@/lib/priority";
+import {
+  daysSinceLastActivity,
+  priorityFromLastActivity,
+} from "@/lib/priority";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, logout } from "@/lib/auth";
 import DashboardMeetingsPanel from "@/components/DashboardMeetingPanel";
-
-const priorityVisual = (priority: Priority) => {
-  switch (priority) {
-    case "hot":
-      return {
-        icon: "🔥",
-        label: "High priority",
-        borderGradient: "from-orange-500/70 via-orange-400/30 to-slate-800/0",
-        bgGradient: "from-orange-500/10 via-slate-950 to-slate-950",
-        stripeGradient: "from-orange-400 to-red-500",
-        stripeGlow: "group-hover:shadow-[0_0_22px_rgba(249,115,22,0.65)]",
-        overlay:
-          "bg-[radial-gradient(circle_at_left,rgba(249,115,22,0.45)_0,rgba(249,115,22,0)_55%)]",
-      };
-    case "warm":
-      return {
-        icon: "🟡",
-        label: "Medium priority",
-        borderGradient: "from-amber-400/70 via-amber-300/25 to-slate-800/0",
-        bgGradient: "from-amber-400/10 via-slate-950 to-slate-950",
-        stripeGradient: "from-amber-300 to-yellow-500",
-        stripeGlow: "group-hover:shadow-[0_0_22px_rgba(245,158,11,0.65)]",
-        overlay:
-          "bg-[radial-gradient(circle_at_left,rgba(245,158,11,0.45)_0,rgba(245,158,11,0)_55%)]",
-      };
-    case "cool":
-    default:
-      return {
-        icon: "🟢",
-        label: "Low priority",
-        borderGradient: "from-emerald-400/70 via-emerald-300/25 to-slate-800/0",
-        bgGradient: "from-emerald-400/10 via-slate-950 to-slate-950",
-        stripeGradient: "from-emerald-300 to-emerald-500",
-        stripeGlow: "group-hover:shadow-[0_0_22px_rgba(16,185,129,0.65)]",
-        overlay:
-          "bg-[radial-gradient(circle_at_left,rgba(16,185,129,0.45)_0,rgba(16,185,129,0)_55%)]",
-      };
-  }
-};
+import { priorityVisual } from "@/lib/ui";
 
 export default function DashboardClient() {
   const router = useRouter();
@@ -82,6 +50,9 @@ export default function DashboardClient() {
   const [projectCode, setProjectCode] = useState("");
   const [projectPriority, setProjectPriority] = useState<Priority>("warm");
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [showArchivedDropdown, setShowArchivedDropdown] = useState(false);
+  const [selectedArchivedProject, setSelectedArchivedProject] =
+    useState<Project | null>(null);
 
   useEffect(() => {
     const { jobs, projects } = loadJobsAndProjects();
@@ -165,7 +136,9 @@ export default function DashboardClient() {
             {/* Center Panel */}
             <div className="grid gap-4 md:grid-cols-2">
               {jobs.map((job) => {
-                const jobProjects = projects.filter((p) => p.jobId === job.id);
+                const jobProjects = projects.filter(
+                  (p) => p.jobId === job.id && !isProjectArchived(p.id)
+                );
 
                 return (
                   <section
@@ -203,10 +176,6 @@ export default function DashboardClient() {
                         >
                           +
                         </button>
-
-                        <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
-                          {job.status === "active" ? "Active" : "Paused"}
-                        </span>
                       </div>
                     </header>
 
@@ -218,15 +187,34 @@ export default function DashboardClient() {
                         const effectiveLastActivityIso =
                           latestSession?.createdAt || p.lastActivityAt || null;
 
-                        const computedPriority = priorityFromLastActivity(
+                        const days = daysSinceLastActivity(
                           effectiveLastActivityIso
                         );
-
-                        const visuals = priorityVisual(computedPriority);
+                        const priority = priorityFromLastActivity(
+                          effectiveLastActivityIso
+                        );
+                        const visuals = priorityVisual(priority, days);
                         const totalHours = getTotalHoursForProject(p.id);
+                        const archived = isProjectArchived(p.id);
 
                         return (
-                          <li key={p.id}>
+                          <li key={p.id} className="relative">
+                            {/* Archive? button — only when hot and not already archived */}
+                            {priority === "hot" && !archived && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  archiveProject(p.id);
+                                  refreshJobsProjects();
+                                }}
+                                className="absolute right-2 top-2 z-20 rounded-full bg-slate-900/90 px-2.5 py-1 text-[10px] font-medium text-amber-200 shadow-sm ring-1 ring-amber-400/70 hover:bg-amber-500 hover:text-slate-950 transition"
+                              >
+                                Archive?
+                              </button>
+                            )}
+
                             <Link
                               href={`/project?id=${p.id}`}
                               className={`group block rounded-2xl bg-linear-to-r ${visuals.borderGradient} p-px`}
@@ -289,6 +277,44 @@ export default function DashboardClient() {
                 </div>
               </button>
             </div>
+          </div>
+
+          {/* Archived projects footer */}
+          <div className="mt-6 border-t border-slate-800/70 pt-3 text-xs text-slate-400">
+            {projects.some((p) => isProjectArchived(p.id)) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowArchivedDropdown((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-3 py-1 text-[11px] font-medium text-slate-200 ring-1 ring-slate-700/70 hover:bg-slate-800"
+                >
+                  <span>Archived projects</span>
+                  <span className="text-[10px] opacity-80">
+                    ({projects.filter((p) => isProjectArchived(p.id)).length})
+                  </span>
+                  <span className="ml-1 text-[9px]">
+                    {showArchivedDropdown ? "▲" : "▼"}
+                  </span>
+                </button>
+
+                {showArchivedDropdown && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {projects
+                      .filter((p) => isProjectArchived(p.id))
+                      .map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setSelectedArchivedProject(p)}
+                          className="rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] text-slate-200 ring-1 ring-slate-700/70 hover:bg-slate-800"
+                        >
+                          {p.code || p.name}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -428,6 +454,44 @@ export default function DashboardClient() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Archive Modal */}
+      {selectedArchivedProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-950/95 p-4 text-xs text-slate-200">
+            <h2 className="text-sm font-semibold text-slate-50">
+              Reopen archived project
+            </h2>
+            <p className="mt-2 text-[11px] text-slate-400">
+              <span className="font-medium text-slate-100">
+                {selectedArchivedProject.name}
+              </span>{" "}
+              will be moved back into its company section.
+            </p>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedArchivedProject(null)}
+                className="rounded-full px-3 py-1.5 text-[11px] text-slate-300 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  unarchiveProject(selectedArchivedProject.id);
+                  setSelectedArchivedProject(null);
+                  refreshJobsProjects();
+                }}
+                className="rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 hover:bg-emerald-400"
+              >
+                Reopen project
+              </button>
+            </div>
           </div>
         </div>
       )}

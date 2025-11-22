@@ -6,6 +6,7 @@ import { Navbar } from "@/components/ui/Navbar";
 import { AnimatedBackgroundSkin } from "@/components/ui/AnimatedBackgroundSkin";
 import { QuickMeetingsWidget } from "@/components/QuickMeetingWidget";
 import { MeetingTitleWatcher } from "@/components/MeetingTitleWatcher";
+import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Tessera",
@@ -21,8 +22,9 @@ export default function RootLayout({
         <AnimatedBackgroundSkin />
 
         <div className="flex min-h-screen flex-col">
-          <Navbar />
-
+          <Suspense fallback={null}>
+            <Navbar />
+          </Suspense>
           {/* 🔓 Main is now full-width; pages control their own layout */}
           <main className="flex-1">
             <div className="px-4 py-6">{children}</div>

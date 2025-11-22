@@ -166,22 +166,25 @@ export function loadJobsAndProjects(): { jobs: Job[]; projects: Project[] } {
 
   // ---- Jobs: seeds + overrides by id ----
   const jobMap = new Map<JobId, Job>();
-
-  // start with seeded jobs
   for (const j of jobsSeed) {
     jobMap.set(j.id, j);
   }
-
-  // apply custom/override jobs (same id will override seed)
   for (const cj of customJobs) {
     const base = jobMap.get(cj.id);
     jobMap.set(cj.id, base ? { ...base, ...cj } : cj);
   }
-
   const jobs = Array.from(jobMap.values()).sort((a, b) => a.order - b.order);
 
-  // projects can stay simple for now
-  const projects = [...projectsSeed, ...customProjects];
+  // ---- Projects: seeds + overrides by id ----
+  const projectMap = new Map<ProjectId, Project>();
+  for (const p of projectsSeed) {
+    projectMap.set(p.id, p);
+  }
+  for (const cp of customProjects) {
+    const base = projectMap.get(cp.id);
+    projectMap.set(cp.id, base ? { ...base, ...cp } : cp);
+  }
+  const projects = Array.from(projectMap.values());
 
   return { jobs, projects };
 }
@@ -496,11 +499,66 @@ export function updateCustomProject(
 
   const current = getCustomProjects();
   const idx = current.findIndex((p) => p.id === id);
-  if (idx === -1) return null;
 
-  const updated: Project = { ...current[idx], ...changes };
-  const next = [...current];
-  next[idx] = updated;
-  saveCustomProjects(next);
-  return updated;
+  let updated: Project;
+
+  if (idx === -1) {
+    // No override yet – start from seed (if it exists)
+    const seed = projectsSeed.find((p) => p.id === id);
+    if (!seed) return null;
+
+    updated = { ...seed, ...changes };
+    const next = [...current, updated];
+    saveCustomProjects(next);
+    return updated;
+  } else {
+    // Update existing override
+    updated = { ...current[idx], ...changes };
+    const next = [...current];
+    next[idx] = updated;
+    saveCustomProjects(next);
+    return updated;
+  }
+}
+
+//-----------Archiving --------------//
+const ARCHIVED_PROJECT_IDS_KEY = "tessera:archivedProjects";
+
+function safeParseProjectIds(raw: string | null): ProjectId[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is ProjectId => typeof x === "string");
+  } catch {
+    return [];
+  }
+}
+
+export function loadArchivedProjectIds(): ProjectId[] {
+  if (typeof window === "undefined") return [];
+  const raw = window.localStorage.getItem(ARCHIVED_PROJECT_IDS_KEY);
+  return safeParseProjectIds(raw);
+}
+
+function saveArchivedProjectIds(ids: ProjectId[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ARCHIVED_PROJECT_IDS_KEY, JSON.stringify(ids));
+}
+
+export function isProjectArchived(id: ProjectId): boolean {
+  const ids = loadArchivedProjectIds();
+  return ids.includes(id);
+}
+
+export function archiveProject(id: ProjectId) {
+  const ids = loadArchivedProjectIds();
+  if (ids.includes(id)) return;
+  saveArchivedProjectIds([...ids, id]);
+}
+
+export function unarchiveProject(id: ProjectId) {
+  const ids = loadArchivedProjectIds();
+  if (!ids.length) return;
+  saveArchivedProjectIds(ids.filter((x) => x !== id));
 }
