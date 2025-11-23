@@ -95,33 +95,51 @@ export function extractTomorrowTasks(workPlan: string): string[] {
 
   return tasks;
 }
+function normalizeLines(raw: unknown): string[] {
+  if (!raw) return [];
 
-export function collectNextMoveTasksFromSessions(
-  sessions: Session[]
-): string[] {
-  const seen = new Set<string>();
-
-  for (const s of sessions) {
-    const raw: any = (s as any).nextMoves;
-    if (!raw) continue;
-
-    let lines: string[];
-
-    if (Array.isArray(raw)) {
-      lines = raw.map((m) => String(m));
-    } else if (typeof raw === "string") {
-      lines = raw.split("\n");
-    } else {
-      continue;
-    }
-
-    for (const line of lines) {
-      const task = line.trim();
-      if (task && !seen.has(task)) {
-        seen.add(task);
-      }
-    }
+  if (Array.isArray(raw)) {
+    return (raw as unknown[]).map((m) => String(m).trim()).filter(Boolean);
   }
 
-  return Array.from(seen);
+  if (typeof raw === "string") {
+    return raw
+      .split("\n")
+      .map((m) => m.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+/**
+ * Collect next-move tasks across all sessions.
+ * Returns:
+ *  - active: still-open next moves
+ *  - archived: anything that has ever been marked done
+ */
+export function collectNextMoveTasksFromSessions(sessions: Session[]): {
+  active: string[];
+  archived: string[];
+} {
+  const allNextMoves = new Set<string>();
+  const completed = new Set<string>();
+
+  for (const s of sessions) {
+    const moves = normalizeLines((s as any).nextMoves);
+    moves.forEach((m) => allNextMoves.add(m));
+
+    const done = normalizeLines((s as any).completedTomorrowTasks);
+    done.forEach((m) => completed.add(m));
+  }
+
+  // Active = all nextMoves minus anything we've ever completed
+  const active: string[] = [];
+  allNextMoves.forEach((m) => {
+    if (!completed.has(m)) active.push(m);
+  });
+
+  const archived = Array.from(completed);
+
+  return { active, archived };
 }

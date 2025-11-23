@@ -55,6 +55,7 @@ export function addSession(
     nextMoves: string[];
     createdAtOverride?: string;
     estimatedHours?: number;
+    completedTomorrowTasks?: string[];
   }
 ): Session {
   if (typeof window === "undefined") {
@@ -80,6 +81,7 @@ export function addSession(
       !Number.isNaN(data.estimatedHours)
         ? data.estimatedHours
         : undefined,
+    completedTomorrowTasks: data.completedTomorrowTasks,
   };
 
   const existing = getAllSessions();

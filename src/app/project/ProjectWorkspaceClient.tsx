@@ -167,6 +167,7 @@ export default function ProjectWorkspaceClient() {
       showToast("Nothing to log yet", "info");
       return;
     }
+
     const nextMovesArray = nextMovesText
       .split("\n")
       .map((m) => m.trim())
@@ -182,12 +183,18 @@ export default function ProjectWorkspaceClient() {
       createdAtOverride: sessionDate,
       estimatedHours:
         typeof hours === "number" && !Number.isNaN(hours) ? hours : undefined,
+
+      // ✅ NEW: persist what you checked in the TomorrowSidebar
+      completedTomorrowTasks: completedTomorrow,
     });
 
+    // ✅ Clear form + completed list for the next session
     setWhatIDid("");
     setWhereLeftOff("");
     setNextMovesText("");
     setSessionHours("");
+    setCompletedTomorrow([]);
+
     setSessions(getSessionsForProject(project.id));
     showToast("Session logged", "success");
   };

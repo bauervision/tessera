@@ -13,6 +13,7 @@ export type Session = {
   nextMoves: string[]; // up to 3 "next" lines
   createdAtOverride?: string;
   estimatedHours?: number;
+  completedTomorrowTasks?: string[];
 };
 
 export type Job = {
