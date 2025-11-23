@@ -195,12 +195,13 @@ export default function ProjectWorkspaceClient() {
   return (
     <>
       {/* 3-column page layout */}
-      <div className="flex gap-4  pb-8 pt-4">
+      <div className="flex gap-4 pt-4 h-[calc(100vh-220px)] overflow-hidden">
         {/* LEFT COLUMN: real aside, hugging left edge */}
-        <aside className="hidden lg:flex w-[360px] h-[calc(100vh-190px)]">
+        <aside className="hidden lg:flex w-[360px] h-full">
           <TomorrowSidebar
             brief={brief}
             lastSession={lastSession}
+            sessions={sessions}
             completed={completedTomorrow}
             onToggle={toggleTomorrowItem}
           />
@@ -691,7 +692,7 @@ export default function ProjectWorkspaceClient() {
         </div>
 
         {/* RIGHT COLUMN: Saved brief */}
-        <aside className="hidden xl:flex w-[360px] h-[calc(100vh-190px)]">
+        <aside className="hidden xl:flex w-[360px] h-full">
           <SavedBrief brief={brief} />
         </aside>
       </div>
@@ -895,4 +896,11 @@ export default function ProjectWorkspaceClient() {
       )}
     </>
   );
+}
+
+function parseNextMoves(raw: string): string[] {
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }

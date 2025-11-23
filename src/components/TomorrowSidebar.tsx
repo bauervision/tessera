@@ -3,18 +3,23 @@
 
 import { useMemo } from "react";
 import type { ProjectBrief, Session } from "@/lib/types";
-import { extractTomorrowTasks } from "@/lib/tomorrow";
+import {
+  collectNextMoveTasksFromSessions,
+  extractTomorrowTasks,
+} from "@/lib/tomorrow";
 
 export function TomorrowSidebar({
   brief,
   lastSession,
   completed,
   onToggle,
+  sessions,
 }: {
   brief: ProjectBrief | null;
   lastSession?: Session | null;
   completed: string[];
   onToggle: (task: string) => void;
+  sessions?: Session[];
 }) {
   const workPlan = brief?.workPlan ?? "";
 
@@ -24,9 +29,14 @@ export function TomorrowSidebar({
   );
 
   const nextMoves: string[] = useMemo(() => {
+    // Preferred: accumulator across all sessions
+    if (sessions && sessions.length > 0) {
+      return collectNextMoveTasksFromSessions(sessions);
+    }
+
+    // Fallback: legacy behavior using only lastSession
     if (!lastSession) return [];
 
-    // be tolerant of both string[] and legacy string shapes
     const raw: any = (lastSession as any).nextMoves;
     if (!raw) return [];
 
@@ -42,7 +52,7 @@ export function TomorrowSidebar({
     }
 
     return [];
-  }, [lastSession]);
+  }, [sessions, lastSession]);
 
   const hasBriefTasks = tomorrowFromBrief.length > 0;
   const hasNextMoves = nextMoves.length > 0;
@@ -66,7 +76,7 @@ export function TomorrowSidebar({
             Tomorrow&apos;s focus
           </h2>
           <p className="mt-0.5 text-[11px] text-slate-400">
-            Pulled from your brief and last session.
+            Pulled from your brief and session next moves.
           </p>
         </div>
         <span className="rounded-full border border-slate-600 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300">
@@ -126,7 +136,7 @@ export function TomorrowSidebar({
           {hasNextMoves && (
             <section>
               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                From last session&apos;s next moves
+                From session next moves
               </div>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {nextMoves.map((task, i) => {

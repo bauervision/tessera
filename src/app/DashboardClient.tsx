@@ -226,12 +226,6 @@ export default function DashboardClient() {
                                   className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${visuals.overlay}`}
                                 />
 
-                                <div
-                                  className={`relative z-10 flex w-10 items-center justify-center rounded-l-[0.95rem] bg-linear-to-b ${visuals.stripeGradient} text-xl shadow-none transition-shadow duration-200 ${visuals.stripeGlow}`}
-                                >
-                                  <span aria-hidden>{visuals.icon}</span>
-                                </div>
-
                                 <div className="relative z-10 flex flex-1 items-center justify-between gap-3 px-3 py-2">
                                   <div className="flex gap-4">
                                     <span className="font-medium text-slate-50">
