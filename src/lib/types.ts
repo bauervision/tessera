@@ -64,3 +64,9 @@ export type MonthCell = {
   iso: string;
   meetings: Meeting[];
 } | null;
+
+export type TimeParts = {
+  hour12: string; // "1"–"12"
+  minute: "00" | "15" | "30" | "45";
+  period: "AM" | "PM";
+};

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   loadJobsAndProjects,
   getMeetingsForDate,
@@ -21,6 +21,22 @@ export default function DashboardMeetingsPanel() {
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const { jobs } = useMemo(() => loadJobsAndProjects(), [refreshKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleMeetingsUpdated = () => {
+      setRefreshKey((k) => k + 1);
+    };
+
+    window.addEventListener("tessera:meetings-updated", handleMeetingsUpdated);
+    return () => {
+      window.removeEventListener(
+        "tessera:meetings-updated",
+        handleMeetingsUpdated
+      );
+    };
+  }, []);
 
   const jobsById = useMemo(() => {
     const map = new Map<string, Job>();
@@ -44,7 +60,7 @@ export default function DashboardMeetingsPanel() {
 
   const todayMeetings = useMemo(
     () => getMeetingsForDate(todayIso()),
-    [todayIso, refreshKey]
+    [refreshKey]
   );
   const totalUpcoming = Array.from(meetingsByDate.values()).reduce(
     (sum, list) => sum + list.length,
