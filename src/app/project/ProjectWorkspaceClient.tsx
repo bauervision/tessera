@@ -27,6 +27,7 @@ import { formatRelative, parseBriefFromText, priorityLabel } from "./helpers";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { TomorrowSidebar } from "@/components/TomorrowSidebar";
 import { SavedBrief } from "@/components/SavedBrief";
+import { MilestonesPanel } from "@/components/MilestonePanel";
 
 export default function ProjectWorkspaceClient() {
   const params = useSearchParams();
@@ -81,6 +82,10 @@ export default function ProjectWorkspaceClient() {
   const [sessionHours, setSessionHours] = useState("");
 
   const [mainTab, setMainTab] = useState<"focus" | "log" | "brief">("focus");
+
+  const [detailTab, setDetailTab] = useState<"milestones" | "brief">(
+    "milestones"
+  );
 
   const [brief, setBrief] = useState<ProjectBrief | null>(null);
   const [briefTab, setBriefTab] = useState<
@@ -207,6 +212,7 @@ export default function ProjectWorkspaceClient() {
         <aside className="hidden lg:flex w-[360px] h-full">
           <TomorrowSidebar
             brief={brief}
+            projectId={project.id}
             lastSession={lastSession}
             sessions={sessions}
             completed={completedTomorrow}
@@ -691,16 +697,68 @@ export default function ProjectWorkspaceClient() {
                 </div>
               )}
 
-              <div className="mt-4 xl:hidden">
-                <SavedBrief brief={brief} />
-              </div>
+              <section className="mt-4 rounded-2xl border border-slate-800/80 bg-slate-950/60 p-4">
+                <header className="flex items-center justify-between gap-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Project details
+                  </h2>
+                  <div className="inline-flex items-center rounded-full bg-slate-900/80 p-0.5 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setDetailTab("milestones")}
+                      className={[
+                        "px-3 py-1 rounded-full transition",
+                        detailTab === "milestones"
+                          ? "bg-sky-500 text-slate-950 font-semibold"
+                          : "text-slate-400 hover:text-slate-100",
+                      ].join(" ")}
+                    >
+                      Milestones
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDetailTab("brief")}
+                      className={[
+                        "px-3 py-1 rounded-full transition",
+                        detailTab === "brief"
+                          ? "bg-slate-800 text-slate-100 font-semibold"
+                          : "text-slate-400 hover:text-slate-100",
+                      ].join(" ")}
+                    >
+                      Saved brief
+                    </button>
+                  </div>
+                </header>
+
+                <div className="mt-3">
+                  {detailTab === "milestones" && project && (
+                    <MilestonesPanel projectId={project.id} />
+                  )}
+
+                  {detailTab === "brief" && (
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-xs leading-relaxed text-slate-200">
+                      <SavedBrief brief={brief} />
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
           </div>
         </div>
 
         {/* RIGHT COLUMN: Saved brief */}
         <aside className="hidden xl:flex w-[360px] h-full">
-          <SavedBrief brief={brief} />
+          <div className="mt-3">
+            {detailTab === "milestones" && project && (
+              <MilestonesPanel projectId={project.id} />
+            )}
+
+            {detailTab === "brief" && (
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-xs leading-relaxed text-slate-200">
+                <SavedBrief brief={brief} />
+              </div>
+            )}
+          </div>
         </aside>
       </div>
 

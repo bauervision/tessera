@@ -1,4 +1,4 @@
-import { Meeting } from "./types";
+import { CalendarItem, Meeting, Milestone } from "./types";
 
 export function fromYmdLocal(ymd: string): Date {
   const [y, m, d] = ymd.split("-").map(Number);
@@ -95,4 +95,30 @@ export function formatDayShort(iso: string) {
     month: "short",
     day: "numeric",
   });
+}
+
+export function buildCalendarItemsForDay(
+  iso: string,
+  meetings: Meeting[],
+  milestones: Milestone[]
+): CalendarItem[] {
+  const meetingItems: CalendarItem[] = meetings
+    .filter((m) => m.dateIso === iso)
+    .map((m) => ({
+      id: `meeting:${m.id}`,
+      dateIso: iso,
+      title: m.title,
+      kind: "meeting" as const,
+    }));
+
+  const milestoneItems: CalendarItem[] = milestones
+    .filter((ms) => ms.dueDateIso === iso)
+    .map((ms) => ({
+      id: `milestone:${ms.id}`,
+      dateIso: iso,
+      title: ms.title,
+      kind: "milestone" as const,
+    }));
+
+  return [...meetingItems, ...milestoneItems];
 }

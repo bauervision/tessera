@@ -11,6 +11,7 @@ import type {
   Job,
   ProjectBrief,
   MeetingRecurrence,
+  Milestone,
 } from "./types";
 
 //---------------Sessions--------------
@@ -563,4 +564,103 @@ export function unarchiveProject(id: ProjectId) {
   const ids = loadArchivedProjectIds();
   if (!ids.length) return;
   saveArchivedProjectIds(ids.filter((x) => x !== id));
+}
+
+// -------------- Milestones ----------------------//
+
+const MILESTONES_KEY = "tessera:milestones";
+
+function safeParseMilestones(raw: string | null): Milestone[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as Milestone[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+function saveMilestones(all: Milestone[]) {
+  localStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
+}
+
+export function getAllMilestones(): Milestone[] {
+  if (typeof window === "undefined") return [];
+  return safeParseMilestones(localStorage.getItem(MILESTONES_KEY));
+}
+
+export function getMilestonesForProject(projectId: ProjectId): Milestone[] {
+  if (typeof window === "undefined") return [];
+  const all = getAllMilestones();
+  return all.filter((m) => m.projectId === projectId);
+}
+
+export function addMilestone(input: {
+  projectId: ProjectId;
+  title: string;
+  notes?: string;
+  dueDateIso?: string;
+}) {
+  if (typeof window === "undefined") return;
+
+  const all = getAllMilestones();
+  const now = new Date().toISOString();
+
+  const milestone: Milestone = {
+    id: `${input.projectId}:${now}`,
+    projectId: input.projectId,
+    title: input.title.trim(),
+    notes: input.notes?.trim() || undefined,
+    dueDateIso: input.dueDateIso || undefined,
+    createdAt: now,
+  };
+
+  saveMilestones([...all, milestone]);
+}
+
+export function updateMilestone(
+  projectId: ProjectId,
+  id: string,
+  changes: Partial<Milestone>
+): Milestone | null {
+  if (typeof window === "undefined") return null;
+
+  const all = getAllMilestones();
+  const idx = all.findIndex((m) => m.id === id && m.projectId === projectId);
+  if (idx === -1) return null;
+
+  const updated: Milestone = {
+    ...all[idx],
+    ...changes,
+  };
+
+  const next = [...all];
+  next[idx] = updated;
+  saveMilestones(next);
+  return updated;
+}
+
+export function toggleMilestoneCompleted(projectId: ProjectId, id: string) {
+  if (typeof window === "undefined") return;
+
+  const all = safeParseMilestones(localStorage.getItem(MILESTONES_KEY));
+  const next = all.map((m) => {
+    if (m.id !== id || m.projectId !== projectId) return m;
+    const completed = !m.completedAt;
+    return {
+      ...m,
+      completedAt: completed ? new Date().toISOString() : undefined,
+    };
+  });
+
+  saveMilestones(next);
+}
+
+export function deleteMilestone(projectId: ProjectId, id: string) {
+  if (typeof window === "undefined") return;
+
+  const all = safeParseMilestones(localStorage.getItem(MILESTONES_KEY));
+  const next = all.filter((m) => !(m.id === id && m.projectId === projectId));
+  saveMilestones(next);
 }

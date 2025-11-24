@@ -79,7 +79,7 @@ export function QuickMeetingsWidget() {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2">
+    <div className="fixed bottom-15 right-4 z-40 flex flex-col items-end gap-2">
       {/* Panel */}
       {open && (
         <div className="w-[320px] rounded-2xl border border-white/15 bg-slate-900/90 p-3 text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.75)] backdrop-blur">

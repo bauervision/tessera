@@ -63,10 +63,32 @@ export type MonthCell = {
   date: Date;
   iso: string;
   meetings: Meeting[];
+  milestones: Milestone[];
 } | null;
 
 export type TimeParts = {
   hour12: string; // "1"–"12"
   minute: "00" | "15" | "30" | "45";
   period: "AM" | "PM";
+};
+
+export type MilestoneId = string;
+
+export type Milestone = {
+  id: MilestoneId;
+  projectId: ProjectId;
+  title: string;
+  notes?: string;
+  dueDateIso?: string; // YYYY-MM-DD
+  createdAt: string; // ISO timestamp
+  completedAt?: string;
+};
+
+export type CalendarItemKind = "meeting" | "milestone";
+
+export type CalendarItem = {
+  id: string;
+  dateIso: string;
+  title: string;
+  kind: CalendarItemKind;
 };

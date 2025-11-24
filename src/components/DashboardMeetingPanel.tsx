@@ -5,8 +5,9 @@ import {
   loadJobsAndProjects,
   getMeetingsForDate,
   deleteMeeting,
+  getAllMilestones,
 } from "@/lib/storage";
-import type { Job, Meeting } from "@/lib/types";
+import type { Job, Meeting, Milestone } from "@/lib/types";
 import { MeetingsOverviewDialog } from "@/components/MeetingsOverviewDialog";
 import {
   addDays,
@@ -20,6 +21,7 @@ export default function DashboardMeetingsPanel() {
   const [anchorDateIso, setAnchorDateIso] = useState<string>(todayIso);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
   const { jobs } = useMemo(() => loadJobsAndProjects(), [refreshKey]);
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export default function DashboardMeetingsPanel() {
   }, [jobs]);
 
   const today = anchorDateIso;
+
   const upcomingIsos = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(today, i)),
     [today]
@@ -62,9 +65,15 @@ export default function DashboardMeetingsPanel() {
     () => getMeetingsForDate(todayIso()),
     [refreshKey]
   );
+
   const totalUpcoming = Array.from(meetingsByDate.values()).reduce(
     (sum, list) => sum + list.length,
     0
+  );
+
+  const milestones: Milestone[] = useMemo(
+    () => getAllMilestones(),
+    [refreshKey]
   );
 
   function handleCancelMeeting(m: Meeting) {
@@ -73,11 +82,8 @@ export default function DashboardMeetingsPanel() {
   }
 
   function handleRescheduleMeeting(m: Meeting) {
-    // You haven't implemented reschedule yet, so keep this as a stub for now
+    // Stub for future reschedule implementation
     console.log("Reschedule meeting", m.id);
-    // Later: open a reschedule dialog or call an update helper,
-    // then bump refreshKey
-    // setRefreshKey((k) => k + 1);
   }
 
   return (
@@ -154,10 +160,19 @@ export default function DashboardMeetingsPanel() {
 
           <div className="flex flex-col gap-2 text-[11px]">
             {upcomingIsos.map((iso) => {
-              const list = meetingsByDate.get(iso) ?? [];
-              if (list.length === 0) {
+              const meetingsForDay = meetingsByDate.get(iso) ?? [];
+              const milestonesForDay = milestones.filter(
+                (ms) => ms.dueDateIso === iso
+              );
+
+              // If nothing scheduled at all, skip this day
+              if (
+                meetingsForDay.length === 0 &&
+                milestonesForDay.length === 0
+              ) {
                 return null;
               }
+
               const [y, m, d] = iso.split("-").map(Number);
               const dateObj = new Date(y, (m || 1) - 1, d || 1);
               const label = dateObj.toLocaleDateString(undefined, {
@@ -188,7 +203,7 @@ export default function DashboardMeetingsPanel() {
                   </div>
 
                   <ul className="space-y-1">
-                    {list.slice(0, 3).map((m) => {
+                    {meetingsForDay.slice(0, 3).map((m) => {
                       const company = m.jobId
                         ? jobsById.get(m.jobId)
                         : undefined;
@@ -215,9 +230,25 @@ export default function DashboardMeetingsPanel() {
                         </li>
                       );
                     })}
-                    {list.length > 3 && (
+
+                    {meetingsForDay.length > 3 && (
                       <li className="text-[10px] text-slate-500">
-                        +{list.length - 3} more
+                        +{meetingsForDay.length - 3} more
+                      </li>
+                    )}
+
+                    {milestonesForDay.length > 0 && (
+                      <li className="pt-1">
+                        <div className="flex flex-wrap gap-1">
+                          {milestonesForDay.map((ms) => (
+                            <span
+                              key={ms.id}
+                              className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-100"
+                            >
+                              {ms.title}
+                            </span>
+                          ))}
+                        </div>
                       </li>
                     )}
                   </ul>
