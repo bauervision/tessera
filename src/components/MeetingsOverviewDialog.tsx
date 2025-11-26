@@ -69,6 +69,8 @@ export function MeetingsOverviewDialog({
     [anchorDateIso]
   );
 
+  const todayIso = useMemo(() => toYmdLocal(new Date()), []);
+
   const { jobs } = loadJobsAndProjects();
 
   // All milestones for the calendar
@@ -254,61 +256,83 @@ export function MeetingsOverviewDialog({
         {/* Body */}
         <div className="mt-3 flex-1 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/80 p-3">
           {mode === "week" ? (
-            <div className="grid h-full grid-cols-1 gap-3 md:grid-cols-5 items-stretch">
-              {weekDays.map(({ date, iso, meetings, milestones }) => (
-                <div
-                  key={iso}
-                  className="flex flex-col rounded-xl border border-slate-800 bg-slate-950/80 p-2"
-                >
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    {date.toLocaleDateString(undefined, {
-                      weekday: "short",
-                    })}
-                  </div>
-                  <div className="text-[12px] font-medium text-slate-100">
-                    {date.getDate()}
-                  </div>
+            <div className="grid h-full grid-cols-1 items-stretch gap-3 md:grid-cols-5">
+              {weekDays.map(({ date, iso, meetings, milestones }) => {
+                const isToday = iso === todayIso;
 
-                  {meetings.length === 0 && milestones.length === 0 ? (
-                    <div className="mt-2 text-[11px] text-slate-500">
-                      Nothing scheduled
-                    </div>
-                  ) : (
-                    <ul className="mt-2 space-y-2 text-[11px]">
-                      {meetings.map((m) => {
-                        const company = m.jobId
-                          ? jobsById.get(m.jobId)
-                          : undefined;
-                        return (
-                          <li key={m.id + iso}>
-                            <MeetingCard
-                              meeting={m}
-                              company={company}
-                              onCancel={onCancelMeeting}
-                              onReschedule={onRescheduleMeeting}
-                            />
-                          </li>
-                        );
-                      })}
-
-                      {milestones.length > 0 && (
-                        <li className="pt-1 border-t border-slate-800 mt-1">
-                          <div className="flex flex-wrap gap-1">
-                            {milestones.map((ms) => (
-                              <span
-                                key={ms.id}
-                                className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-100"
-                              >
-                                {ms.title}
-                              </span>
-                            ))}
-                          </div>
-                        </li>
+                return (
+                  <div
+                    key={iso}
+                    className={[
+                      "flex flex-col rounded-xl border p-2 transition-shadow",
+                      isToday
+                        ? "border-sky-400/80 bg-slate-950 shadow-[0_0_0_1px_rgba(56,189,248,0.5)]"
+                        : "border-slate-800 bg-slate-950/80",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-baseline justify-between">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        {date.toLocaleDateString(undefined, {
+                          weekday: "short",
+                        })}
+                      </div>
+                      {isToday && (
+                        <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-sky-200">
+                          Today
+                        </span>
                       )}
-                    </ul>
-                  )}
-                </div>
-              ))}
+                    </div>
+
+                    <div
+                      className={[
+                        "text-[12px] font-medium",
+                        isToday ? "text-sky-100" : "text-slate-100",
+                      ].join(" ")}
+                    >
+                      {date.getDate()}
+                    </div>
+
+                    {meetings.length === 0 && milestones.length === 0 ? (
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Nothing scheduled
+                      </div>
+                    ) : (
+                      <ul className="mt-2 space-y-2 text-[11px]">
+                        {meetings.map((m) => {
+                          const company = m.jobId
+                            ? jobsById.get(m.jobId)
+                            : undefined;
+                          return (
+                            <li key={m.id + iso}>
+                              <MeetingCard
+                                meeting={m}
+                                company={company}
+                                onCancel={onCancelMeeting}
+                                onReschedule={onRescheduleMeeting}
+                              />
+                            </li>
+                          );
+                        })}
+
+                        {milestones.length > 0 && (
+                          <li className="mt-1 border-t border-slate-800 pt-1">
+                            <div className="flex flex-wrap gap-1">
+                              {milestones.map((ms) => (
+                                <span
+                                  key={ms.id}
+                                  className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-100"
+                                >
+                                  {ms.title}
+                                </span>
+                              ))}
+                            </div>
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="flex h-full flex-col space-y-2">
@@ -338,6 +362,8 @@ export function MeetingsOverviewDialog({
 
                       const { date, iso, meetings, milestones } = cell;
 
+                      const isToday = iso === todayIso;
+
                       return (
                         <MonthDayCell
                           key={`${wi}-${ci}-${iso}`}
@@ -346,6 +372,7 @@ export function MeetingsOverviewDialog({
                           meetings={meetings}
                           milestones={milestones}
                           jobsById={jobsById}
+                          isToday={isToday}
                           onClick={() =>
                             setSelectedDay({
                               date,

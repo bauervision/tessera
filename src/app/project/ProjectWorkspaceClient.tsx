@@ -223,23 +223,10 @@ export default function ProjectWorkspaceClient() {
         {/* CENTER COLUMN: main content, centered */}
         <div className="flex min-w-0 flex-1 justify-center">
           <div className="w-full max-w-5xl space-y-4">
-            {/* Breadcrumb */}
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <button
-                type="button"
-                onClick={() => router.push("/")}
-                className="rounded-full border border-slate-600 bg-slate-900 px-2.5 py-0.5 text-[11px] text-slate-200 hover:bg-slate-800"
-              >
-                ← Tessera dashboard
-              </button>
-              <span className="text-slate-600">/</span>
-              <span className="text-slate-300">Project workspace</span>
-            </div>
-
             {/* Header */}
             <header className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <h1 className="text-xl font-semibold text-slate-50">
+                <h1 className="text-4xl font-semibold text-slate-50">
                   {project.name}
                 </h1>
 
@@ -273,7 +260,7 @@ export default function ProjectWorkspaceClient() {
 
             {/* Tabs + content */}
             <div className="flex flex-col gap-3">
-              <div className="flex gap-2 text-xs">
+              <div className="flex gap-2 text-sm">
                 <button
                   type="button"
                   onClick={() => setMainTab("focus")}

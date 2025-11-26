@@ -119,14 +119,65 @@ export default function DashboardClient() {
       <div className="mx-auto max-w-6xl">
         <div className="px-6 pb-8 pt-4">
           {/* Header */}
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Today in Tessera
-            </h1>
-            <p className="mt-1 text-sm text-slate-400">
-              High-level view of your jobs and active projects. Sessions and
-              &ldquo;Resume work&rdquo; live on each workspace.
-            </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Today in Tessera
+              </h1>
+              <p className="mt-1 text-sm text-slate-400">
+                High-level view of your jobs and active projects. Sessions and
+                &ldquo;Resume work&rdquo; live on each workspace.
+              </p>
+            </div>
+
+            <div className="flex flex-col items-start gap-2 sm:items-end">
+              <Link
+                href="/planner"
+                className="flex items-center justify-center rounded-full border border-sky-400/60 bg-sky-500/10 px-4 py-1.5 text-sm font-medium text-sky-100 shadow-sm transition hover:bg-sky-500/20 hover:border-sky-300/80"
+              >
+                Weekly planner
+              </Link>
+
+              {/* Archived projects (moved up from footer) */}
+              <div className="text-xs text-slate-400">
+                {projects.some((p) => isProjectArchived(p.id)) && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowArchivedDropdown((v) => !v)}
+                      className="inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-3 py-1 text-[11px] font-medium text-slate-200 ring-1 ring-slate-700/70 hover:bg-slate-800"
+                    >
+                      <span>Archived projects</span>
+                      <span className="text-[10px] opacity-80">
+                        (
+                        {projects.filter((p) => isProjectArchived(p.id)).length}
+                        )
+                      </span>
+                      <span className="ml-1 text-[9px]">
+                        {showArchivedDropdown ? "▲" : "▼"}
+                      </span>
+                    </button>
+
+                    {showArchivedDropdown && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {projects
+                          .filter((p) => isProjectArchived(p.id))
+                          .map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setSelectedArchivedProject(p)}
+                              className="rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] text-slate-200 ring-1 ring-slate-700/70 hover:bg-slate-800"
+                            >
+                              {p.code || p.name}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="mt-4 flex gap-4">
@@ -152,31 +203,30 @@ export default function DashboardClient() {
                         </h2>
                         <p className="text-xs text-slate-500">{job.label}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingJob(job);
-                            setCompanyName(job.name);
-                            setCompanyLabel(job.label ?? "");
-                            setShowJobDialog(true);
-                          }}
-                          className="rounded-full border border-slate-500/40 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
-                        >
-                          Edit
-                        </button>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProjectJobId(job.id);
-                            setShowProjectDialog(true);
-                          }}
-                          className="text-[11px] rounded-full border border-sky-400/40 bg-sky-500/10 px-2.5 py-1 text-sky-100 hover:bg-sky-500/25"
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingJob(job);
+                          setCompanyName(job.name);
+                          setCompanyLabel(job.label ?? "");
+                          setShowJobDialog(true);
+                        }}
+                        aria-label="Edit company"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-500/40 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:border-slate-300/70"
+                      >
+                        {/* simple pencil icon */}
+                        <svg
+                          viewBox="0 0 20 20"
+                          className="h-3.5 w-3.5"
+                          aria-hidden="true"
                         >
-                          +
-                        </button>
-                      </div>
+                          <path
+                            d="M4 13.5 12.5 5a1 1 0 0 1 1.4 0l1.1 1.1a1 1 0 0 1 0 1.4L6.5 16H4v-2.5Z"
+                            fill="currentColor"
+                          />
+                        </svg>
+                      </button>
                     </header>
 
                     <ul className="space-y-1.5 text-sm">
@@ -251,6 +301,21 @@ export default function DashboardClient() {
                           </li>
                         );
                       })}
+
+                      {/* Add project button as the “next item” */}
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProjectJobId(job.id);
+                            setShowProjectDialog(true);
+                          }}
+                          className="group flex w-full items-center justify-center rounded-2xl border border-dashed border-sky-500/60 bg-sky-500/5 px-3 py-2 text-[12px] font-medium text-sky-100 hover:bg-sky-500/15 hover:border-sky-300/80"
+                        >
+                          <span className="mr-1 text-base leading-none">+</span>
+                          <span className="tracking-wide">Add project</span>
+                        </button>
+                      </li>
                     </ul>
                   </section>
                 );
@@ -271,44 +336,6 @@ export default function DashboardClient() {
                 </div>
               </button>
             </div>
-          </div>
-
-          {/* Archived projects footer */}
-          <div className="mt-6 border-t border-slate-800/70 pt-3 text-xs text-slate-400">
-            {projects.some((p) => isProjectArchived(p.id)) && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowArchivedDropdown((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-3 py-1 text-[11px] font-medium text-slate-200 ring-1 ring-slate-700/70 hover:bg-slate-800"
-                >
-                  <span>Archived projects</span>
-                  <span className="text-[10px] opacity-80">
-                    ({projects.filter((p) => isProjectArchived(p.id)).length})
-                  </span>
-                  <span className="ml-1 text-[9px]">
-                    {showArchivedDropdown ? "▲" : "▼"}
-                  </span>
-                </button>
-
-                {showArchivedDropdown && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {projects
-                      .filter((p) => isProjectArchived(p.id))
-                      .map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => setSelectedArchivedProject(p)}
-                          className="rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] text-slate-200 ring-1 ring-slate-700/70 hover:bg-slate-800"
-                        >
-                          {p.code || p.name}
-                        </button>
-                      ))}
-                  </div>
-                )}
-              </>
-            )}
           </div>
         </div>
       </div>

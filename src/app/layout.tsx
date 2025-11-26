@@ -32,12 +32,6 @@ export default function RootLayout({
 
           <QuickMeetingsWidget />
           <MeetingTitleWatcher />
-          <footer className="border-t border-white/10 bg-slate-950/90">
-            <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 text-xs text-slate-500">
-              <span>© {new Date().getFullYear()} Bauervision · Tessera</span>
-              <span>Personal mode · v0.1</span>
-            </div>
-          </footer>
         </div>
       </body>
     </html>

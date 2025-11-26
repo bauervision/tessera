@@ -26,3 +26,43 @@ export type PlannerPriorityRow = {
   enabled: boolean;
   weeklyHours: number;
 };
+
+export type DayScheduleBlock = {
+  id: string;
+  kind: "work" | "lunch"; // we'll add "break" and "personal" next
+  label: string;
+  projectId?: string;
+  startMinutes: number;
+  endMinutes: number;
+  cumulativeMinutesAfter?: number;
+  totalMinutesPlanned?: number;
+};
+
+export type DaySchedule = {
+  dayId: string;
+  label: string;
+  blocks: DayScheduleBlock[];
+  dayEndMinutes: number;
+};
+
+type FinalizeTask = {
+  projectId: string;
+  projectName: string;
+  companyName?: string;
+  weeklyHoursNeeded: number;
+  // plus any extra fields you're already using in this file, e.g.
+  // meetings?: any[];
+  // tomorrowTasksCount?: number;
+};
+
+export type StepFinalizeProps = {
+  tasks: FinalizeTask[];
+  days: DayConfig[];
+  totalAvailableHours: number;
+  priorities: PlannerPriorityRow[];
+  projectDoneFromDayIndex: Record<string, number>;
+  onProjectDoneFromDayIndexChange: (
+    updater: (prev: Record<string, number>) => Record<string, number>
+  ) => void;
+  onSavePlan?: () => void;
+};

@@ -90,58 +90,58 @@ export default function StepConfigure({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {/* Defaults on Left */}
           <div>
-            <span className="text-[12px] font-semibold text-slate-200">
+            <span className="text-[15px] font-semibold text-slate-200">
               Weekly default
             </span>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[13px] text-slate-400">
               Applied to all non-custom days.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <div className="flex flex-col">
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[13px] text-slate-400">
                   Default start
                 </span>
                 <input
                   type="time"
                   value={toTime(defaultStartMinutes)}
                   onChange={(e) => handleDefaultStartChange(e.target.value)}
-                  className="mt-0.5 w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+                  className="mt-0.5 w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[14px] text-slate-100"
                 />
               </div>
               <div className="flex flex-col">
-                <span className="text-[10px] text-slate-400">Default end</span>
+                <span className="text-[13px] text-slate-400">Default end</span>
                 <input
                   type="time"
                   value={toTime(defaultEndMinutes)}
                   onChange={(e) => handleDefaultEndChange(e.target.value)}
-                  className="mt-0.5 w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+                  className="mt-0.5 w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[14px] text-slate-100"
                 />
               </div>
             </div>
           </div>
 
           {/* Breakdown on the right */}
-          <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-[11px] text-slate-200">
+          <div className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-[14px] text-slate-200">
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Active days</span>
+              <span className="text-slate-400 mr-4">Active days</span>
               <span className="font-semibold">
                 {activeDaysCount} day{activeDaysCount === 1 ? "" : "s"}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Default hours per day</span>
+              <span className="text-slate-400">Hours per day</span>
               <span className="font-semibold">
                 {defaultDailyHours.toFixed(1)}h
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Base weekly hours</span>
+              <span className="text-slate-400">Weekly hours</span>
               <span className="font-semibold">
                 {baseWeeklyHours.toFixed(1)}h
               </span>
             </div>
             <div className="mt-1 border-t border-slate-800 pt-1 flex items-center justify-between">
-              <span className="text-slate-500">Current (with overrides)</span>
+              <span className="text-slate-500">Current </span>
               <span className="font-semibold">
                 {totalAvailableHours.toFixed(1)}h
               </span>
@@ -219,7 +219,7 @@ export default function StepConfigure({
                     }
                     className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
                   />
-                  <span className="text-[11px] font-semibold text-slate-100">
+                  <span className="text-[14px] font-semibold text-slate-100">
                     {day.label}
                   </span>
                 </label>
@@ -238,9 +238,9 @@ export default function StepConfigure({
                 style={barStyle}
               />
 
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-400">Start</span>
+              <div className="mt-1 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] text-slate-400">Start</span>
                   <input
                     type="time"
                     value={toTime(day.startMinutes)}
@@ -261,12 +261,13 @@ export default function StepConfigure({
                         };
                       });
                     }}
-                    className="mt-0.5 w-20 rounded-md border border-slate-700 bg-slate-900 px-1 py-0.5 text-[11px] text-slate-100"
+                    className="w-24 rounded-md border border-slate-700 bg-slate-900 px-1 py-0.5 text-[14px] text-slate-100"
                     disabled={!day.active}
                   />
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-400">End</span>
+
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] text-slate-400">End</span>
                   <input
                     type="time"
                     value={toTime(day.endMinutes)}
@@ -287,7 +288,7 @@ export default function StepConfigure({
                         };
                       });
                     }}
-                    className="mt-0.5 w-20 rounded-md border border-slate-700 bg-slate-900 px-1 py-0.5 text-[11px] text-slate-100"
+                    className="w-24 rounded-md border border-slate-700 bg-slate-900 px-1 py-0.5 text-[14px] text-slate-100"
                     disabled={!day.active}
                   />
                 </div>

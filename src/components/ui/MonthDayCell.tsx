@@ -1,6 +1,16 @@
 // components/ui/MonthDayCell.tsx
 import type { Meeting, Milestone, Job } from "@/lib/types";
 
+type MonthDayCellProps = {
+  date: Date;
+  iso: string;
+  meetings: Meeting[];
+  milestones: Milestone[];
+  jobsById: Map<string, Job>;
+  onClick?: () => void;
+  isToday?: boolean;
+};
+
 export function MonthDayCell({
   date,
   iso,
@@ -8,14 +18,8 @@ export function MonthDayCell({
   milestones,
   jobsById,
   onClick,
-}: {
-  date: Date;
-  iso: string;
-  meetings: Meeting[];
-  milestones: Milestone[];
-  jobsById: Map<string, Job>;
-  onClick?: () => void;
-}) {
+  isToday = false,
+}: MonthDayCellProps) {
   const hasMeetings = meetings.length > 0;
   const hasMilestones = milestones.length > 0;
 
@@ -23,21 +27,43 @@ export function MonthDayCell({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-full flex-col rounded-lg border border-slate-800 bg-slate-950/70 p-1.5 text-left hover:border-sky-500/70 hover:bg-slate-900/80"
+      className={[
+        "flex h-full flex-col rounded-lg border p-1.5 text-left transition-shadow",
+        isToday
+          ? "border-sky-500/80 bg-slate-950 shadow-[0_0_0_1px_rgba(56,189,248,0.4)]"
+          : "border-slate-800 bg-slate-950/70 hover:border-sky-500/70 hover:bg-slate-900/80",
+      ].join(" ")}
     >
       <div className="flex items-center justify-between text-[10px]">
-        <span className="font-medium text-slate-100">{date.getDate()}</span>
-        {(hasMeetings || hasMilestones) && (
-          <span className="text-[9px] text-slate-500">
-            {hasMeetings && `${meetings.length} mtg`}
-            {hasMilestones && (
-              <>
-                {hasMeetings && " · "}
-                {milestones.length} ms
-              </>
-            )}
-          </span>
-        )}
+        <span
+          className={
+            isToday
+              ? "font-semibold text-sky-100"
+              : "font-medium text-slate-100"
+          }
+        >
+          {date.getDate()}
+        </span>
+
+        <div className="flex items-center gap-1">
+          {(hasMeetings || hasMilestones) && (
+            <span className="text-[9px] text-slate-500">
+              {hasMeetings && `${meetings.length} mtg`}
+              {hasMilestones && (
+                <>
+                  {hasMeetings && " · "}
+                  {milestones.length} ms
+                </>
+              )}
+            </span>
+          )}
+
+          {isToday && (
+            <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.16em] text-sky-200">
+              Today
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="mt-1 space-y-0.5">
@@ -49,7 +75,7 @@ export function MonthDayCell({
               className="truncate rounded-md bg-sky-500/10 px-1 py-0.5 text-[9px] text-sky-100"
             >
               {m.time && (
-                <span className="font-mono text-[9px] text-sky-300 mr-1">
+                <span className="mr-1 font-mono text-[9px] text-sky-300">
                   {m.time}
                 </span>
               )}

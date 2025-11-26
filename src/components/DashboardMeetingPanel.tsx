@@ -213,7 +213,7 @@ export default function DashboardMeetingsPanel() {
                           className="flex items-baseline justify-between gap-2"
                         >
                           <div className="min-w-0">
-                            <div className="truncate text-[11px] text-slate-100">
+                            <div className="truncate text-[16px] text-slate-100">
                               {m.title}
                             </div>
                             {company && (

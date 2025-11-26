@@ -136,7 +136,7 @@ export function ProjectCard({
           </span>
           <div>
             <div className="flex items-center gap-2">
-              <div className="text-sm font-semibold text-slate-100">
+              <div className="text-lg font-semibold text-slate-100">
                 {t.projectName}
               </div>
               <span className="cursor-grab text-[10px] text-slate-500">⠿</span>
@@ -144,7 +144,7 @@ export function ProjectCard({
             {t.companyName && (
               <div className="text-xs text-slate-400">{t.companyName}</div>
             )}
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[15px] text-slate-300">
               <span className="inline-flex items-center rounded-full bg-slate-800 px-2 py-0.5">
                 Priority{" "}
                 <span className="ml-1 font-semibold">
@@ -195,7 +195,7 @@ export function ProjectCard({
           </label>
 
           <div
-            className="flex items-center gap-2 text-[11px] text-slate-300"
+            className="flex items-center gap-2 text-[15px] text-slate-300"
             onClick={(e) => e.stopPropagation()}
           >
             <span>Hours this week</span>
@@ -227,7 +227,7 @@ export function ProjectCard({
 
       {/* Accordion panel */}
       {expanded && (
-        <div className="mt-3 border-t border-slate-800 pt-3 text-[11px] text-slate-300">
+        <div className="mt-3 border-t border-slate-800 pt-3 text-[15px] text-slate-300">
           <div className="mb-2 flex items-center justify-between">
             <span className="font-semibold text-slate-200">
               Tasks for this project
@@ -247,11 +247,11 @@ export function ProjectCard({
               documentation (1h)&quot;.
             </p>
           ) : (
-            <ul className="mb-3 space-y-2">
+            <ul className="mb-3 space-y-2 ">
               {combined.map((s) => (
                 <li
                   key={s.id}
-                  className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-1
+                  className=" text-[15px] flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-1
                              hover:border-sky-500/30 hover:bg-slate-900 hover:shadow-sm hover:shadow-sky-600/10 transition"
                 >
                   <input
@@ -290,7 +290,7 @@ export function ProjectCard({
                         }));
                       }
                     }}
-                    className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-100"
+                    className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[16px] text-slate-100"
                     placeholder="Task description"
                   />
 

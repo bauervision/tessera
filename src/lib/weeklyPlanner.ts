@@ -1,5 +1,7 @@
 // src/lib/weeklyPlanner.ts
 
+import { DayConfig, PlannerPriorityRow } from "@/app/planner/types";
+
 export type DummyScenario = "light" | "normal" | "heavy";
 
 export type WeeklyMilestone = {
@@ -284,4 +286,49 @@ export function buildWeeklyTasks(
   tasks.sort((a, b) => b.priorityScore - a.priorityScore);
 
   return tasks;
+}
+
+const WEEKLY_PLANNER_KEY = "tessera:weeklyPlanner";
+
+export type SavedWeeklyPlan = {
+  weekStartIso: string;
+  scenario: DummyScenario;
+  days: DayConfig[];
+  defaultStartMinutes: number;
+  defaultEndMinutes: number;
+  manualOrder: string[] | null;
+  priorities: PlannerPriorityRow[];
+  projectDoneFromDayIndex: Record<string, number>;
+  savedAt: string;
+};
+
+type WeeklyPlannerStore = Record<string, SavedWeeklyPlan>;
+
+export function loadSavedWeeklyPlan(
+  weekStartIso: string
+): SavedWeeklyPlan | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(WEEKLY_PLANNER_KEY);
+    if (!raw) return null;
+    const store = JSON.parse(raw) as WeeklyPlannerStore;
+    const plan = store[weekStartIso];
+    if (!plan) return null;
+    return plan;
+  } catch (err) {
+    console.error("Failed to load weekly planner plan", err);
+    return null;
+  }
+}
+
+export function saveWeeklyPlan(plan: SavedWeeklyPlan) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(WEEKLY_PLANNER_KEY);
+    const store: WeeklyPlannerStore = raw ? JSON.parse(raw) : {};
+    store[plan.weekStartIso] = plan;
+    window.localStorage.setItem(WEEKLY_PLANNER_KEY, JSON.stringify(store));
+  } catch (err) {
+    console.error("Failed to save weekly planner plan", err);
+  }
 }
