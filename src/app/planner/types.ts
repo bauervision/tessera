@@ -1,3 +1,5 @@
+import { WeeklyMeeting } from "@/lib/weeklyPlanner";
+
 //app/planner/types.ts
 export type DayConfig = {
   id: number;
@@ -29,9 +31,10 @@ export type PlannerPriorityRow = {
 
 export type DayScheduleBlock = {
   id: string;
-  kind: "work" | "lunch"; // we'll add "break" and "personal" next
+  kind: "work" | "lunch" | "meeting";
   label: string;
   projectId?: string;
+  meetingId?: string;
   startMinutes: number;
   endMinutes: number;
   cumulativeMinutesAfter?: number;
@@ -50,9 +53,7 @@ type FinalizeTask = {
   projectName: string;
   companyName?: string;
   weeklyHoursNeeded: number;
-  // plus any extra fields you're already using in this file, e.g.
-  // meetings?: any[];
-  // tomorrowTasksCount?: number;
+  meetings?: WeeklyMeeting[];
 };
 
 export type StepFinalizeProps = {
@@ -65,4 +66,5 @@ export type StepFinalizeProps = {
     updater: (prev: Record<string, number>) => Record<string, number>
   ) => void;
   onSavePlan?: () => void;
+  weekStartIso: string;
 };

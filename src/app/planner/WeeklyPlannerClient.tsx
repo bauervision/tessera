@@ -341,6 +341,7 @@ export default function WeeklyPlannerClient() {
                 setProjectDoneFromDayIndex((prev) => updater(prev))
               }
               onSavePlan={handleSavePlan}
+              weekStartIso={weekStartIso}
             />
           )}
 
@@ -401,6 +402,7 @@ export default function WeeklyPlannerClient() {
             })
           }
           onSavePlan={handleSavePlan}
+          weekStartIso={weekStartIso}
         />
       )}
     </div>

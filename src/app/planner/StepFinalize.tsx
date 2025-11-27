@@ -14,6 +14,7 @@ import type {
   StepFinalizeProps,
 } from "./types";
 import { useMemo, useState } from "react";
+import { CalendarDays } from "lucide-react";
 
 const formatMinutes = (mins: number) => {
   // Round to the nearest whole minute to avoid float artifacts
@@ -41,7 +42,9 @@ export default function StepFinalize({
   projectDoneFromDayIndex,
   onProjectDoneFromDayIndexChange,
   onSavePlan,
+  weekStartIso,
 }: StepFinalizeProps) {
+  const [cancelledMeetingIds, setCancelledMeetingIds] = useState<string[]>([]);
   const byId = new Map(tasks.map((t) => [t.projectId, t]));
 
   const effective = priorities
@@ -81,6 +84,39 @@ export default function StepFinalize({
     ? totalPlannedHours / activeDays.length
     : 0;
 
+  const meetingsByDate = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; title: string; minutes: number; projectId?: string }[]
+    >();
+
+    const cancelled = new Set(cancelledMeetingIds); // ← add this
+
+    tasks.forEach((t) => {
+      if (!t.meetings) return;
+
+      t.meetings.forEach((m) => {
+        if (!m.id || cancelled.has(m.id)) return; // ← skip cancelled meetings
+
+        const key = m.dateIso;
+        if (!key) return;
+
+        const list = map.get(key) ?? [];
+
+        list.push({
+          id: m.id,
+          title: m.title,
+          minutes: m.hours * 60,
+          projectId: t.projectId,
+        });
+
+        map.set(key, list);
+      });
+    });
+
+    return map;
+  }, [tasks, cancelledMeetingIds]);
+
   // ============= LUNCH =============== //
   // Build a naive per-day schedule from active days + planned project hours
   const daySchedules: DaySchedule[] = useMemo(() => {
@@ -108,6 +144,24 @@ export default function StepFinalize({
       cumulativeMinutesByProject.set(p.projectId, 0);
     });
 
+    // Map labels to offsets relative to Monday's ISO date
+    const weekdayOffsets: Record<string, number> = {
+      Sun: -1,
+      Mon: 0,
+      Tue: 1,
+      Wed: 2,
+      Thu: 3,
+      Fri: 4,
+      Sat: 5,
+    };
+
+    function addDaysToIso(iso: string, days: number): string {
+      const [y, m, d] = iso.split("-").map(Number);
+      const dt = new Date(y, (m || 1) - 1, d || 1);
+      dt.setDate(dt.getDate() + days);
+      return dt.toISOString().slice(0, 10);
+    }
+
     return activeDays.map((day) => {
       const blocks: DayScheduleBlock[] = [];
       const dayStart = day.startMinutes;
@@ -122,35 +176,99 @@ export default function StepFinalize({
         };
       }
 
-      // --- Figure out segments, reserving Lunch when it fits ---
-      const segments: { start: number; end: number }[] = [];
+      // Figure out ISO date for this day (relative to Monday weekStartIso)
+      const offset = weekdayOffsets[day.label] ?? 0;
+      const dayIso =
+        offset === 0 ? weekStartIso : addDaysToIso(weekStartIso, offset);
 
+      const dayMeetings = meetingsByDate.get(dayIso) ?? [];
+
+      type Reserved = {
+        id: string;
+        kind: "lunch" | "meeting";
+        label: string;
+        start: number;
+        end: number;
+        projectId?: string;
+        meetingId?: string;
+      };
+
+      const reserved: Reserved[] = [];
+
+      // Lunch block if it fits entirely inside the day window
       const lunchFits =
         dayStart <= LUNCH_START &&
         LUNCH_END <= dayEnd &&
         LUNCH_END - LUNCH_START <= dayEnd - dayStart;
 
       if (lunchFits) {
-        if (dayStart < LUNCH_START) {
-          segments.push({ start: dayStart, end: LUNCH_START });
-        }
-        if (LUNCH_END < dayEnd) {
-          segments.push({ start: LUNCH_END, end: dayEnd });
-        }
-
-        // Lunch block
-        blocks.push({
+        reserved.push({
           id: `lunch-${day.id}`,
           kind: "lunch",
           label: "Lunch break",
-          startMinutes: LUNCH_START,
-          endMinutes: LUNCH_END,
+          start: LUNCH_START,
+          end: LUNCH_END,
         });
-      } else {
-        segments.push({ start: dayStart, end: dayEnd });
       }
 
-      // --- Sequential scheduling: walk forward through segments ---
+      // Place meetings sequentially after lunch (or at day start if no lunch)
+      let meetingCursor = Math.max(dayStart, lunchFits ? LUNCH_END : dayStart);
+
+      dayMeetings.forEach((m, idx) => {
+        const duration = m.minutes;
+        if (duration <= 0) return;
+        if (meetingCursor >= dayEnd) return;
+
+        const start = meetingCursor;
+        const end = Math.min(dayEnd, start + duration);
+
+        reserved.push({
+          id: `${day.id}-mtg-${m.id ?? idx}`,
+          kind: "meeting",
+          label: m.title,
+          start,
+          end,
+          projectId: m.projectId,
+          meetingId: m.id,
+        });
+
+        meetingCursor = end;
+      });
+
+      // Sort reserved by time
+      reserved.sort((a, b) => a.start - b.start);
+
+      // Build free segments as gaps between reserved blocks
+      const segments: { start: number; end: number }[] = [];
+      if (reserved.length === 0) {
+        segments.push({ start: dayStart, end: dayEnd });
+      } else {
+        let cursor = dayStart;
+        for (const r of reserved) {
+          if (r.start > cursor) {
+            segments.push({ start: cursor, end: r.start });
+          }
+          cursor = Math.max(cursor, r.end);
+        }
+        if (cursor < dayEnd) {
+          segments.push({ start: cursor, end: dayEnd });
+        }
+      }
+
+      // Seed blocks with reserved items (lunch + meetings)
+      reserved.forEach((r) => {
+        blocks.push({
+          id: r.id,
+          kind: r.kind,
+          label: r.label,
+          projectId: r.projectId,
+          meetingId: r.meetingId,
+          startMinutes: r.start,
+          endMinutes: r.end,
+        });
+      });
+
+      // Sequential scheduling: walk forward through segments and fill them with work
       let segmentIndex = 0;
       let cursor = segments.length > 0 ? segments[0].start : dayStart;
 
@@ -228,7 +346,7 @@ export default function StepFinalize({
         }
       });
 
-      // sort by time so lunch & work appear in order
+      // sort by time so lunch, meetings & work appear in order
       blocks.sort((a, b) => a.startMinutes - b.startMinutes);
 
       return {
@@ -238,7 +356,7 @@ export default function StepFinalize({
         dayEndMinutes: dayEnd,
       };
     });
-  }, [activeDays, effective]);
+  }, [activeDays, effective, meetingsByDate, weekStartIso]);
 
   return (
     <section className="space-y-4">
@@ -363,7 +481,9 @@ export default function StepFinalize({
                         ? "bg-rose-500/15 text-rose-100 border border-rose-400/60"
                         : b.kind === "work"
                         ? "bg-sky-500/10 text-sky-100"
-                        : "bg-amber-500/10 text-amber-100";
+                        : b.kind === "meeting"
+                        ? "bg-violet-500/15 text-violet-100 border border-violet-400/60"
+                        : "bg-amber-500/10 text-amber-100"; // lunch
 
                       const durationHours =
                         (b.endMinutes - b.startMinutes) / 60;
@@ -384,28 +504,45 @@ export default function StepFinalize({
                         <li
                           key={b.id}
                           onClick={() => {
-                            const pid = b.projectId;
-                            if (!pid || b.kind !== "work") return;
+                            // Click behavior for work blocks: mark project "done from this day"
+                            if (b.kind === "work") {
+                              const pid = b.projectId;
+                              if (!pid) return;
 
-                            onProjectDoneFromDayIndexChange((prev) => {
-                              const existing = prev[pid];
+                              onProjectDoneFromDayIndexChange((prev) => {
+                                const existing = prev[pid];
 
-                              if (
-                                existing !== undefined &&
-                                existing === dayIndex
-                              ) {
-                                const copy: Record<string, number> = {
+                                if (
+                                  existing !== undefined &&
+                                  existing === dayIndex
+                                ) {
+                                  const copy: Record<string, number> = {
+                                    ...prev,
+                                  };
+                                  delete copy[pid];
+                                  return copy;
+                                }
+
+                                return {
                                   ...prev,
+                                  [pid]: dayIndex,
                                 };
-                                delete copy[pid];
-                                return copy;
-                              }
+                              });
 
-                              return {
-                                ...prev,
-                                [pid]: dayIndex,
-                              };
-                            });
+                              return;
+                            }
+
+                            // Click behavior for meeting blocks: cancel from schedule
+                            if (b.kind === "meeting") {
+                              const meetingId = b.meetingId;
+                              if (!meetingId) return; // narrow to string
+
+                              setCancelledMeetingIds((prev) =>
+                                prev.includes(meetingId)
+                                  ? prev
+                                  : [...prev, meetingId]
+                              );
+                            }
                           }}
                           className={[
                             "flex items-center justify-between rounded-lg px-2 py-1 cursor-pointer",
@@ -429,6 +566,12 @@ export default function StepFinalize({
                                 {totalHours.toFixed(1)} hrs
                               </div>
                             )}
+
+                          {b.kind === "meeting" && (
+                            <div className="ml-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
+                              <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
+                            </div>
+                          )}
                         </li>
                       );
                     })}
