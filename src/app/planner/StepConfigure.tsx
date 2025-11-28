@@ -73,18 +73,6 @@ export default function StepConfigure({
 
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold text-slate-200">
-          Step 1: Weekly Configuration
-        </h2>
-        <p className="text-xs text-slate-400">
-          Choose which days you&apos;re working this week and set start / end
-          times for each. Adjust the weekly default first, then fine-tune
-          individual days as overrides. The green band shows your working hours
-          per day.
-        </p>
-      </div>
-
       {/* Weekly defaults + high-level breakdown */}
       <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-3 text-xs text-slate-300">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

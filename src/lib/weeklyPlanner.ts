@@ -1,6 +1,12 @@
 // src/lib/weeklyPlanner.ts
 
 import { DayConfig, PlannerPriorityRow } from "@/app/planner/types";
+import {
+  getAllMilestones,
+  getMeetingsForDate,
+  loadJobsAndProjects,
+} from "./storage";
+import { Meeting, Milestone, StoredJob, StoredProject } from "./types";
 
 export type DummyScenario = "light" | "normal" | "heavy";
 
@@ -331,4 +337,156 @@ export function saveWeeklyPlan(plan: SavedWeeklyPlan) {
   } catch (err) {
     console.error("Failed to save weekly planner plan", err);
   }
+}
+
+/**
+ * Build WeeklyPlannerTask[] from real Tessera projects.
+ * v1 is intentionally simple: one core block per project, hours scaled by scenario.
+ */
+export function buildRealWeeklyTasks(
+  weekStartIso: string,
+  scenario: DummyScenario
+): WeeklyPlannerTask[] {
+  const { jobs, projects } = loadJobsAndProjects() as {
+    jobs: StoredJob[];
+    projects: StoredProject[];
+  };
+
+  const jobsById = new Map<string, StoredJob>();
+  jobs.forEach((j) => jobsById.set(j.id, j));
+
+  // Week range helpers
+  function isInWeek(dateIso: string): boolean {
+    const start = new Date(weekStartIso);
+    const end = new Date(weekStartIso);
+    end.setDate(end.getDate() + 6);
+
+    const [y, m, d] = dateIso.split("-").map(Number);
+    const dt = new Date(y, (m || 1) - 1, d || 1);
+    return dt >= start && dt <= end;
+  }
+
+  // Scenario multiplier (light/normal/heavy)
+  const mult = scenario === "light" ? 0.6 : scenario === "heavy" ? 1.4 : 1.0;
+
+  // ----- Milestones (real) -----
+  const allMilestones = getAllMilestones() as Milestone[];
+  const milestonesByProject = new Map<string, WeeklyMilestone[]>();
+
+  allMilestones.forEach((ms) => {
+    if (!ms.projectId || !ms.dueDateIso) return;
+    if (!isInWeek(ms.dueDateIso)) return;
+
+    const hours = (ms.estimatedHours ?? 2) * mult;
+
+    const entry: WeeklyMilestone = {
+      id: ms.id,
+      title: ms.title,
+      dueIso: ms.dueDateIso,
+      hours,
+    };
+
+    const list = milestonesByProject.get(ms.projectId) ?? [];
+    list.push(entry);
+    milestonesByProject.set(ms.projectId, list);
+  });
+
+  // ----- Meetings (real, per week, grouped by job) -----
+  const meetingsByJob = new Map<string, WeeklyMeeting[]>();
+
+  for (let offset = 0; offset < 7; offset++) {
+    const dateIso = addDays(weekStartIso, offset);
+    const dayMeetings = getMeetingsForDate(dateIso) as Meeting[];
+
+    dayMeetings.forEach((m) => {
+      if (!m.jobId) return;
+
+      const list = meetingsByJob.get(m.jobId) ?? [];
+      list.push({
+        id: m.id,
+        title: m.title,
+        dateIso,
+        hours: 1, // v1: assume 1h per meeting (matches DRD behavior)
+      });
+      meetingsByJob.set(m.jobId, list);
+    });
+  }
+
+  const tasks: WeeklyPlannerTask[] = projects.map((p) => {
+    const job = p.jobId ? jobsById.get(p.jobId) : undefined;
+
+    const milestones = milestonesByProject.get(p.id) ?? [];
+    const meetings = p.jobId ? meetingsByJob.get(p.jobId) ?? [] : [];
+
+    // Base "core work" hours for this project
+    const baseHours = 2 * mult;
+
+    // Extra hours from milestones + a light buffer for meetings
+    const milestoneHours = milestones.reduce((sum, ms) => sum + ms.hours, 0);
+    const meetingHours = meetings.length * 0.5 * mult; // 0.5h per meeting buffer
+
+    const coreBlockHours = baseHours + milestoneHours + meetingHours;
+
+    const autoTasks: WeeklyPlannerTask["autoTasks"] = [];
+
+    if (coreBlockHours > 0) {
+      autoTasks.push({
+        id: makeId(`base_${p.id}`),
+        label: "Core work block for this project",
+        estimatedHours: coreBlockHours,
+        included: true,
+      });
+    }
+
+    milestones.forEach((ms) => {
+      autoTasks.push({
+        id: ms.id,
+        label: `Milestone: ${ms.title} (due ${ms.dueIso})`,
+        estimatedHours: ms.hours,
+        included: true,
+      });
+    });
+
+    meetings.forEach((mtg) => {
+      autoTasks.push({
+        id: mtg.id,
+        label: `Meeting: ${mtg.title} (${mtg.dateIso})`,
+        estimatedHours: mtg.hours,
+        included: true,
+      });
+    });
+
+    const weeklyHoursNeeded = autoTasks.reduce(
+      (sum, t) => sum + (t.included ? t.estimatedHours : 0),
+      0
+    );
+
+    // Very simple priority for now: milestones > meetings > core
+    const milestoneWeight = milestones.length;
+    const meetingWeight = meetings.length * 0.5;
+
+    const priorityScore = 1 + milestoneWeight * 2 + meetingWeight;
+
+    return {
+      projectId: p.id,
+      projectName: p.name,
+      companyName: job?.name,
+      priorityScore,
+      weeklyHoursNeeded,
+      milestones,
+      tomorrowTasksCount: 0, // we'll wire Tomorrow later
+      meetings,
+      autoTasks,
+    };
+  });
+
+  // Stable order: highest priority first, then name
+  tasks.sort((a, b) => {
+    if (b.priorityScore !== a.priorityScore) {
+      return b.priorityScore - a.priorityScore;
+    }
+    return a.projectName.localeCompare(b.projectName);
+  });
+
+  return tasks;
 }

@@ -82,6 +82,7 @@ export type Milestone = {
   dueDateIso?: string; // YYYY-MM-DD
   createdAt: string; // ISO timestamp
   completedAt?: string;
+  estimatedHours?: number;
 };
 
 export type CalendarItemKind = "meeting" | "milestone";
@@ -92,3 +93,6 @@ export type CalendarItem = {
   title: string;
   kind: CalendarItemKind;
 };
+
+export type StoredJob = { id: string; name: string };
+export type StoredProject = { id: string; name: string; jobId?: string | null };

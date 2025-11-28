@@ -67,4 +67,7 @@ export type StepFinalizeProps = {
   ) => void;
   onSavePlan?: () => void;
   weekStartIso: string;
+  hasSavedPlan?: boolean;
+  viewMode?: "schedule" | "wizard";
+  onViewModeChange?: (mode: "schedule" | "wizard") => void;
 };

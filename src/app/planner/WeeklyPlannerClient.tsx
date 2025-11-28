@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  buildDummyProjects,
-  buildWeeklyTasks,
+  buildRealWeeklyTasks,
   type DummyScenario,
   loadSavedWeeklyPlan,
   saveWeeklyPlan,
   type SavedWeeklyPlan,
+  buildDummyProjects,
+  buildWeeklyTasks,
 } from "@/lib/weeklyPlanner";
 import StepConfigure from "./StepConfigure";
 import StepPrioritize from "./StepPrioritize";
@@ -39,10 +40,9 @@ export default function WeeklyPlannerClient() {
   const [viewMode, setViewMode] = useState<"wizard" | "schedule">("wizard");
 
   const { baseTasks, totalWeeklyHoursNeeded } = useMemo(() => {
-    const projects = buildDummyProjects(weekStartIso, scenario);
-    const baseTasks = buildWeeklyTasks(projects, weekStartIso);
+    const baseTasks = buildRealWeeklyTasks(weekStartIso, scenario);
     const totalWeeklyHoursNeeded = baseTasks.reduce(
-      (sum, t) => sum + t.weeklyHoursNeeded,
+      (sum: any, t: { weeklyHoursNeeded: any }) => sum + t.weeklyHoursNeeded,
       0
     );
     return { baseTasks, totalWeeklyHoursNeeded };
@@ -214,42 +214,6 @@ export default function WeeklyPlannerClient() {
         </div>
       </header>
 
-      {/* NEW: view toggle when a plan is saved */}
-      {hasSavedPlan && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-[11px] text-slate-400">
-            You have a saved schedule for this week. View it directly or tweak
-            the plan using the builder.
-          </div>
-          <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-0.5 text-xs">
-            <button
-              type="button"
-              onClick={() => setViewMode("schedule")}
-              className={[
-                "rounded-full px-3 py-1.5 font-medium transition",
-                viewMode === "schedule"
-                  ? "bg-emerald-500 text-slate-950"
-                  : "text-slate-300 hover:bg-slate-800",
-              ].join(" ")}
-            >
-              Weekly schedule
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("wizard")}
-              className={[
-                "rounded-full px-3 py-1.5 font-medium transition",
-                viewMode === "wizard"
-                  ? "bg-sky-500 text-slate-950"
-                  : "text-slate-300 hover:bg-slate-800",
-              ].join(" ")}
-            >
-              Plan builder
-            </button>
-          </div>
-        </div>
-      )}
-
       {viewMode === "wizard" && (
         <>
           {/* Stepper */}
@@ -337,11 +301,12 @@ export default function WeeklyPlannerClient() {
               totalAvailableHours={totalAvailableHours}
               priorities={priorities}
               projectDoneFromDayIndex={projectDoneFromDayIndex}
-              onProjectDoneFromDayIndexChange={(updater) =>
-                setProjectDoneFromDayIndex((prev) => updater(prev))
-              }
+              onProjectDoneFromDayIndexChange={setProjectDoneFromDayIndex}
               onSavePlan={handleSavePlan}
               weekStartIso={weekStartIso}
+              hasSavedPlan={hasSavedPlan}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
             />
           )}
 
@@ -393,16 +358,12 @@ export default function WeeklyPlannerClient() {
           totalAvailableHours={totalAvailableHours}
           priorities={priorities}
           projectDoneFromDayIndex={projectDoneFromDayIndex}
-          onProjectDoneFromDayIndexChange={(updater) =>
-            setProjectDoneFromDayIndex((prev) => {
-              const next = updater(prev);
-              // keep in sync with saved plan if one exists
-              setHasSavedPlan(true);
-              return next;
-            })
-          }
+          onProjectDoneFromDayIndexChange={setProjectDoneFromDayIndex}
           onSavePlan={handleSavePlan}
           weekStartIso={weekStartIso}
+          hasSavedPlan={hasSavedPlan}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
         />
       )}
     </div>

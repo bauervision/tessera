@@ -145,15 +145,6 @@ export default function StepPrioritize({
 
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-semibold text-slate-200">
-        Step 2: Focus & Priority
-      </h2>
-      <p className="text-xs text-slate-400">
-        These focus projects are ordered by milestone urgency, staleness,
-        tomorrow tasks, and meetings. Drag to rearrange, toggle items out of
-        this week, and refine the task breakdown and estimates for each project.
-      </p>
-
       {tasks.length === 0 ? (
         <p className="text-sm text-slate-400">
           No tasks generated for this scenario.

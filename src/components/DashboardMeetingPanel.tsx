@@ -18,6 +18,7 @@ import {
 import { MeetingCard } from "./ui/Meetingcard";
 import { loadSavedWeeklyPlan, type SavedWeeklyPlan } from "@/lib/weeklyPlanner";
 import { getCurrentWeekMondayIso } from "@/app/planner/helpers";
+import { CalendarDays } from "lucide-react";
 
 export default function DashboardMeetingsPanel() {
   const [anchorDateIso, setAnchorDateIso] = useState<string>(todayIso);
@@ -298,6 +299,11 @@ export default function DashboardMeetingsPanel() {
     return fullTimeline;
   }, [savedPlan, todayPlan, todayMeetings, timeToMinutes]);
 
+  const workMinutesToday = todayBlocks.reduce((sum, b) => {
+    if (b.kind !== "work") return sum;
+    return sum + (b.endMinutes - b.startMinutes);
+  }, 0);
+
   function handleCancelMeeting(m: Meeting) {
     deleteMeeting(m.id);
     setRefreshKey((k) => k + 1);
@@ -353,74 +359,77 @@ export default function DashboardMeetingsPanel() {
                 </p>
               )}
 
-              {savedPlan && todayPlan && todayPlan.status === "work" && (
-                <>
-                  <div className="mb-2 grid grid-cols-2 gap-2">
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1.5">
-                      <div className="text-[10px] text-slate-400">
-                        Planned work
+              {savedPlan &&
+                todayPlan &&
+                todayPlan.status === "work" &&
+                todayBlocks.length > 0 && (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/85 p-2">
+                    {/* Header row: matches StepFinalize day cards */}
+                    <div className="mb-1 flex items-center justify-between">
+                      <div>
+                        <div className="text-[11px] text-slate-400">
+                          Planned {todayPlan.plannedHours.toFixed(1)}h ·{" "}
+                          {todayMeetings.length} meeting
+                          {todayMeetings.length === 1 ? "" : "s"} ·{" "}
+                          {milestonesToday.length} milestone
+                          {milestonesToday.length === 1 ? "" : "s"}
+                        </div>
                       </div>
-                      <div className="text-[13px] font-semibold text-emerald-300">
-                        {todayPlan.plannedHours.toFixed(1)}h
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {formatMinutes(todayPlan.windowStart)} –{" "}
-                        {formatMinutes(todayPlan.windowEnd)}
+                      <div className="text-[11px] font-semibold text-emerald-300">
+                        {(workMinutesToday / 60).toFixed(1)}h work
                       </div>
                     </div>
 
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1.5">
-                      <div className="text-[10px] text-slate-400">Today</div>
-                      <div className="text-[13px] font-semibold text-sky-300">
-                        {todayMeetings.length} meeting
-                        {todayMeetings.length === 1 ? "" : "s"}
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {milestonesToday.length} milestone
-                        {milestonesToday.length === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Time-sliced Today strip */}
-                  {todayBlocks.length > 0 && (
-                    <ul className="mt-2 space-y-1.5">
+                    {/* Full-day block list (timeline) */}
+                    <ul className="space-y-1.5 text-[11px]">
                       {todayBlocks.map((b) => {
                         const tone =
                           b.kind === "work"
-                            ? "bg-sky-500/10 text-sky-100 border border-sky-400/40"
+                            ? "bg-sky-500/10 text-sky-100"
                             : b.kind === "meeting"
                             ? "bg-violet-500/15 text-violet-100 border border-violet-400/60"
                             : b.kind === "lunch"
                             ? "bg-amber-500/10 text-amber-100 border border-amber-400/60"
                             : "bg-emerald-500/5 text-emerald-100 border border-emerald-400/40";
 
+                        const labelText =
+                          b.kind === "lunch"
+                            ? "Lunch break"
+                            : b.kind === "free"
+                            ? "Free time (personal)"
+                            : b.label;
+
                         return (
                           <li
                             key={b.id}
-                            className={`flex items-center justify-between rounded-lg px-2 py-1 text-[11px] ${tone}`}
+                            className={[
+                              "flex items-center justify-between rounded-lg px-2 py-1",
+                              tone,
+                            ].join(" ")}
                           >
                             <div>
-                              <div className="text-[13px] font-medium">
-                                {b.label}
-                              </div>
-                              <div className="text-[10px] text-slate-300/60">
+                              <div className="text-[15px]">{labelText}</div>
+                              <div className="text-[13px] text-slate-300/50">
                                 {formatMinutes(b.startMinutes)} –{" "}
                                 {formatMinutes(b.endMinutes)}
                               </div>
                             </div>
+
+                            {b.kind === "meeting" && (
+                              <div className="ml-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
+                                <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
+                              </div>
+                            )}
                           </li>
                         );
                       })}
                     </ul>
-                  )}
-                </>
-              )}
+                  </div>
+                )}
             </div>
           )}
         </div>
 
-        {/* Header row */}
         {/* Calendar (accordion) */}
         <div className="rounded-2xl border border-slate-800 bg-slate-950/80">
           <div

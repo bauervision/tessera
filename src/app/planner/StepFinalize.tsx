@@ -43,6 +43,9 @@ export default function StepFinalize({
   onProjectDoneFromDayIndexChange,
   onSavePlan,
   weekStartIso,
+  onViewModeChange,
+  hasSavedPlan,
+  viewMode,
 }: StepFinalizeProps) {
   const [cancelledMeetingIds, setCancelledMeetingIds] = useState<string[]>([]);
   const byId = new Map(tasks.map((t) => [t.projectId, t]));
@@ -102,6 +105,11 @@ export default function StepFinalize({
         if (!key) return;
 
         const list = map.get(key) ?? [];
+
+        // ✅ De-dupe by meeting id for this date
+        if (list.some((existing) => existing.id === m.id)) {
+          return;
+        }
 
         list.push({
           id: m.id,
@@ -360,12 +368,6 @@ export default function StepFinalize({
 
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold text-slate-200">
-          Step 3: Finalize Weekly Plan
-        </h2>
-      </div>
-
       {/* Daily schedule preview */}
       {daySchedules.length > 0 && (
         <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-3 text-xs text-slate-200">
@@ -373,6 +375,38 @@ export default function StepFinalize({
             <h3 className="text-lg font-semibold text-slate-100">
               Proposed daily schedule
             </h3>
+
+            {hasSavedPlan && viewMode && onViewModeChange && (
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => onViewModeChange("schedule")}
+                    className={[
+                      "rounded-full px-3 py-1.5 font-medium transition",
+                      viewMode === "schedule"
+                        ? "bg-emerald-500 text-slate-950"
+                        : "text-slate-300 hover:bg-slate-800",
+                    ].join(" ")}
+                  >
+                    Weekly schedule
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onViewModeChange("wizard")}
+                    className={[
+                      "rounded-full px-3 py-1.5 font-medium transition",
+                      viewMode === "wizard"
+                        ? "bg-sky-500 text-slate-950"
+                        : "text-slate-300 hover:bg-slate-800",
+                    ].join(" ")}
+                  >
+                    Plan builder
+                  </button>
+                </div>
+              </div>
+            )}
+
             {onSavePlan && (
               <button
                 type="button"
@@ -729,11 +763,4 @@ export default function StepFinalize({
       </div>
     </section>
   );
-}
-function setHasSavedPlan(arg0: boolean) {
-  throw new Error("Function not implemented.");
-}
-
-function setViewMode(arg0: string) {
-  throw new Error("Function not implemented.");
 }

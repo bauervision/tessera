@@ -297,6 +297,7 @@ export function upsertBriefForProject(
 }
 
 import type { Meeting } from "./types";
+import { DummyScenario, WeeklyPlannerTask } from "./weeklyPlanner";
 
 const MEETINGS_KEY = "tessera.meetings.v1";
 
