@@ -1,832 +1,607 @@
-// app/planner/StepFinalize.tsx
 "use client";
 
-import type { DaySchedule, DayScheduleBlock, StepFinalizeProps } from "./types";
-import { useMemo, useState } from "react";
-import { CalendarDays } from "lucide-react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import type { DayConfig, PlannerPriorityRow } from "./types";
+import { CalendarDays, AlertTriangle } from "lucide-react";
+import { getMeetingsForDate } from "@/lib/storage";
+import type { Meeting } from "@/lib/types";
 
-const formatMinutes = (mins: number) => {
-  // Round to the nearest whole minute to avoid float artifacts
-  const total = Math.round(mins);
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
-  const h24 = Math.floor(total / 60);
-  const m = total % 60;
+interface StepFinalizeProps {
+  tasks: any[];
+  days: DayConfig[];
+  totalAvailableHours: number;
+  priorities: PlannerPriorityRow[];
+  projectDoneFromDayIndex: Record<string, number>;
+  onProjectDoneFromDayIndexChange: (next: Record<string, number>) => void;
+  onSavePlan: () => void;
+  weekStartIso: string;
+  hasSavedPlan: boolean;
+  viewMode: "wizard" | "schedule";
+  onViewModeChange: (mode: "wizard" | "schedule") => void;
+}
 
-  let h12 = h24 % 12;
-  if (h12 === 0) h12 = 12;
+type DayBlockKind = "work" | "meeting";
 
-  const mm = m.toString().padStart(2, "0");
-  const ampm = h24 < 12 ? "AM" : "PM";
-
-  return `${h12}:${mm} ${ampm}`;
+type DayBlock = {
+  id: string;
+  kind: DayBlockKind;
+  label: string;
+  projectId?: string;
+  startMinutes: number;
+  endMinutes: number;
+  weeklyHours?: number;
+  dailyHours?: number;
+  meetingId?: string;
+  conflict?: boolean;
+  timeLabel: string;
 };
 
-const timeStringToMinutes = (time?: string | null): number | null => {
-  if (!time) return null;
-  const [hStr, mStr] = time.split(":");
-  const h = Number(hStr);
-  const m = Number(mStr);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
-};
+const ORDER_KEY_PREFIX = "tessera:plannerProjectOrder:";
 
-// Basic schedule model for this step
+// ---------- localStorage helpers (per-week project order) ----------
 
-const LUNCH_START = 12 * 60; // 12:00
-const LUNCH_END = LUNCH_START + 30; // 12:30
+function loadProjectOrder(weekStartIso: string): string[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ORDER_KEY_PREFIX + weekStartIso);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : null;
+  } catch {
+    return null;
+  }
+}
 
-export default function StepFinalize({
-  tasks,
-  days,
-  totalAvailableHours,
-  priorities,
-  projectDoneFromDayIndex,
-  onProjectDoneFromDayIndexChange,
-  onSavePlan,
-  weekStartIso,
-  onViewModeChange,
-  hasSavedPlan,
-  viewMode,
-}: StepFinalizeProps) {
-  const [cancelledMeetingIds, setCancelledMeetingIds] = useState<string[]>([]);
-  const byId = new Map(tasks.map((t) => [t.projectId, t]));
-
-  const effective = priorities
-    .map((row) => {
-      const base = byId.get(row.projectId);
-      if (!base) return null;
-      return {
-        projectId: row.projectId,
-        projectName: base.projectName,
-        companyName: base.companyName,
-        included: row.enabled,
-        weeklyHours: row.weeklyHours,
-      };
-    })
-    .filter(Boolean) as {
-    projectId: string;
-    projectName: string;
-    companyName?: string;
-    included: boolean;
-    weeklyHours: number;
-  }[];
-
-  const includedProjects = effective.filter((p) => p.included);
-  const totalPlannedHours = includedProjects.reduce(
-    (sum, p) => sum + p.weeklyHours,
-    0
-  );
-  const delta = totalAvailableHours - totalPlannedHours;
-  const overCapacity = delta < 0;
-
-  const activeDays = days.filter((d) => d.active);
-  const totalActiveHours = activeDays.reduce((sum, d) => {
-    const minutes = Math.max(0, d.endMinutes - d.startMinutes);
-    return sum + minutes / 60;
-  }, 0);
-  const avgPerDay = activeDays.length
-    ? totalPlannedHours / activeDays.length
-    : 0;
-
-  const meetingsByDate = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        id: string;
-        title: string;
-        minutes: number;
-        projectId?: string;
-        time?: string | null;
-      }[]
-    >();
-
-    const cancelled = new Set(cancelledMeetingIds);
-
-    tasks.forEach((t) => {
-      if (!t.meetings) return;
-
-      t.meetings.forEach((m) => {
-        if (!m.id || cancelled.has(m.id)) return;
-
-        const key = m.dateIso;
-        if (!key) return;
-
-        const list = map.get(key) ?? [];
-
-        if (list.some((existing) => existing.id === m.id)) {
-          return;
-        }
-
-        list.push({
-          id: m.id,
-          title: m.title,
-          minutes: m.hours * 60,
-          projectId: t.projectId,
-          time: m.time, // 👈 NEW: pass through start time if available
-        });
-
-        map.set(key, list);
-      });
-    });
-
-    return map;
-  }, [tasks, cancelledMeetingIds]);
-
-  // ============= LUNCH =============== //
-  // Build a naive per-day schedule from active days + planned project hours
-  const daySchedules: DaySchedule[] = useMemo(() => {
-    if (!activeDays.length || !effective.length) return [];
-
-    const includedProjects = effective.filter(
-      (p) => p.included && p.weeklyHours > 0
+function saveProjectOrder(weekStartIso: string, order: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      ORDER_KEY_PREFIX + weekStartIso,
+      JSON.stringify(order)
     );
-    if (!includedProjects.length) return [];
+  } catch {
+    // ignore
+  }
+}
 
-    const daysCount = activeDays.length;
+// ---------- date / time helpers ----------
 
-    // Simple: distribute each project's weekly hours evenly across active days
-    const perDayMinutes = includedProjects.map((p) => ({
-      projectId: p.projectId,
-      projectName: p.projectName,
-      minutesPerDay: (p.weeklyHours / daysCount) * 60,
-    }));
+function parseIsoToLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
 
-    const totalMinutesByProject = new Map<string, number>();
-    const cumulativeMinutesByProject = new Map<string, number>();
+function addDaysIso(baseIso: string, offset: number): string {
+  const base = parseIsoToLocalDate(baseIso);
+  base.setDate(base.getDate() + offset);
+  return base.toISOString().slice(0, 10);
+}
 
-    includedProjects.forEach((p) => {
-      totalMinutesByProject.set(p.projectId, p.weeklyHours * 60);
-      cumulativeMinutesByProject.set(p.projectId, 0);
+function minutesToLabel(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  const mm = m.toString().padStart(2, "0");
+  return `${hour12}:${mm} ${ampm}`;
+}
+
+function timeToMinutes(t: string | null | undefined): number | null {
+  if (!t) return null;
+  const [hh, mm] = t.split(":").map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return hh * 60 + mm;
+}
+
+function formatDateLabel(iso: string): string {
+  const d = parseIsoToLocalDate(iso);
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+// ---------- meeting conflict helpers ----------
+
+type MeetingWithTimes = {
+  meeting: Meeting;
+  start: number;
+  end: number;
+};
+
+function getMeetingsWithTimes(meetings: Meeting[]): MeetingWithTimes[] {
+  return meetings
+    .map((m) => {
+      const start = timeToMinutes(m.time);
+      if (start == null) return null;
+      const end = start + 30; // 30-min default
+      return { meeting: m, start, end };
+    })
+    .filter(Boolean) as MeetingWithTimes[];
+}
+
+function computeMeetingConflicts(meetings: Meeting[]): {
+  hasAny: boolean;
+  conflictIds: Set<string>;
+} {
+  const withTimes = getMeetingsWithTimes(meetings).sort(
+    (a, b) => a.start - b.start
+  );
+  const conflictIds = new Set<string>();
+
+  for (let i = 1; i < withTimes.length; i++) {
+    const prev = withTimes[i - 1];
+    const cur = withTimes[i];
+    if (cur.start < prev.end) {
+      const prevId = String((prev.meeting as any).id ?? "");
+      const curId = String((cur.meeting as any).id ?? "");
+      if (prevId) conflictIds.add(prevId);
+      if (curId) conflictIds.add(curId);
+    }
+  }
+
+  return { hasAny: conflictIds.size > 0, conflictIds };
+}
+
+// ---------- DnD row ----------
+
+function DayBlockRow({ block }: { block: DayBlock }) {
+  const isLocked = block.kind === "meeting";
+
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({
+      id: block.id,
+      disabled: isLocked,
     });
 
-    // Map labels to offsets relative to Monday's ISO date
-    const weekdayOffsets: Record<string, number> = {
-      Sun: -1,
-      Mon: 0,
-      Tue: 1,
-      Wed: 2,
-      Thu: 3,
-      Fri: 4,
-      Sat: 5,
-    };
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    cursor: isLocked ? "default" : "grab",
+  };
 
-    function addDaysToIso(iso: string, days: number): string {
-      const [y, m, d] = iso.split("-").map(Number);
-      const dt = new Date(y, (m || 1) - 1, d || 1);
-      dt.setDate(dt.getDate() + days);
-      return dt.toISOString().slice(0, 10);
-    }
+  const tone =
+    block.kind === "work"
+      ? "bg-sky-500/10 text-sky-100"
+      : "bg-violet-500/15 text-violet-100 border border-violet-400/60";
 
-    return activeDays.map((day) => {
-      const blocks: DayScheduleBlock[] = [];
-      const dayStart = day.startMinutes;
-      const dayEnd = day.endMinutes;
+  const subtitle =
+    block.kind === "work" && block.dailyHours != null
+      ? `${block.dailyHours.toFixed(1)} / ${block.weeklyHours ?? 0} hrs`
+      : block.timeLabel;
 
-      if (dayEnd <= dayStart) {
-        return {
-          dayId: String(day.id),
-          label: day.label,
-          blocks,
-          dayEndMinutes: dayEnd,
-        };
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...(!isLocked ? listeners : {})}
+      className={[
+        "flex items-center justify-between rounded-lg px-2 py-1",
+        tone,
+      ].join(" ")}
+    >
+      <div>
+        <div className="text-[15px]">{block.label}</div>
+        <div className="text-[13px] text-slate-300/60">{subtitle}</div>
+        {block.kind === "meeting" && block.conflict && (
+          <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-rose-600/20 px-2 py-[1px] text-[10px] font-semibold text-rose-200">
+            <AlertTriangle className="h-3 w-3" />
+            Conflict
+          </div>
+        )}
+      </div>
+
+      {block.kind === "meeting" && (
+        <div className="ml-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
+          <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
+        </div>
+      )}
+    </li>
+  );
+}
+
+// ---------- main component ----------
+
+const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export default function StepFinalize(props: StepFinalizeProps) {
+  const {
+    tasks,
+    days,
+    totalAvailableHours,
+    priorities,
+    projectDoneFromDayIndex,
+    onProjectDoneFromDayIndexChange: _onProjectDoneFromDayIndexChange, // not used yet
+    onSavePlan,
+    weekStartIso,
+    hasSavedPlan,
+    viewMode,
+    onViewModeChange,
+  } = props;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    })
+  );
+
+  const activeDaysCount = days.filter((d) => d.active).length || 1;
+
+  const enabledPriorities = useMemo(
+    () => priorities.filter((p) => p.enabled && p.weeklyHours > 0),
+    [priorities]
+  );
+
+  // Global project order for the week
+  const [projectOrder, setProjectOrder] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    const order = loadProjectOrder(weekStartIso);
+    setProjectOrder(order);
+  }, [weekStartIso]);
+
+  const orderedPriorities = useMemo(() => {
+    if (!projectOrder) return enabledPriorities;
+
+    const byId = new Map(enabledPriorities.map((p) => [p.projectId, p]));
+    const ordered: PlannerPriorityRow[] = [];
+
+    projectOrder.forEach((id) => {
+      const row = byId.get(id);
+      if (row) {
+        ordered.push(row);
+        byId.delete(id);
       }
+    });
 
-      // Figure out ISO date for this day (relative to Monday weekStartIso)
-      const offset = weekdayOffsets[day.label] ?? 0;
-      const dayIso =
-        offset === 0 ? weekStartIso : addDaysToIso(weekStartIso, offset);
+    byId.forEach((row) => ordered.push(row));
+    return ordered;
+  }, [enabledPriorities, projectOrder]);
 
-      const dayMeetings = meetingsByDate.get(dayIso) ?? [];
+  function getProjectLabel(projectId: string): string {
+    const row = orderedPriorities.find((p) => p.projectId === projectId) as any;
+    const task = tasks.find((t: any) => t.projectId === projectId) as any;
 
-      type Reserved = {
-        id: string;
-        kind: "lunch" | "meeting";
-        label: string;
-        start: number;
-        end: number;
-        projectId?: string;
-        meetingId?: string;
-      };
+    return (
+      row?.label ?? row?.name ?? task?.name ?? task?.projectName ?? projectId
+    );
+  }
 
-      const reserved: Reserved[] = [];
+  // Map label -> DayConfig (Sun/Mon/etc.)
+  const dayConfigByLabel = useMemo(() => {
+    const map = new Map<string, DayConfig>();
+    days.forEach((d) => map.set(d.label, d));
+    return map;
+  }, [days]);
 
-      // Lunch block if it fits entirely inside the day window
-      const lunchFits =
-        dayStart <= LUNCH_START &&
-        LUNCH_END <= dayEnd &&
-        LUNCH_END - LUNCH_START <= dayEnd - dayStart;
+  // Build view model for each calendar day of this week
+  const dayViews = useMemo(() => {
+    const views: {
+      iso: string;
+      dateLabel: string;
+      config: DayConfig | null;
+      configIndex: number | null;
+      blocks: DayBlock[];
+      workHours: number;
+      hasMeetingConflict: boolean;
+    }[] = [];
 
-      if (lunchFits) {
-        reserved.push({
-          id: `lunch-${day.id}`,
-          kind: "lunch",
-          label: "Lunch break",
-          start: LUNCH_START,
-          end: LUNCH_END,
-        });
-      }
+    for (let offset = 0; offset < 7; offset++) {
+      const iso = addDaysIso(weekStartIso, offset);
+      const dateObj = parseIsoToLocalDate(iso);
+      const weekdayLabel = weekdayLabels[dateObj.getDay()];
+      const configIndex = days.findIndex((d) => d.label === weekdayLabel);
+      const config = configIndex >= 0 ? days[configIndex] : null;
 
-      // Place meetings sequentially after lunch (or at day start if no lunch)
-      let meetingCursor = Math.max(dayStart, lunchFits ? LUNCH_END : dayStart);
+      const meetingsForDay = getMeetingsForDate(iso);
+      const { hasAny, conflictIds } = computeMeetingConflicts(meetingsForDay);
 
-      dayMeetings.forEach((m, idx) => {
-        const duration = m.minutes;
-        if (duration <= 0) return;
+      const blocks: DayBlock[] = [];
 
-        // Prefer the real meeting start time, if we have one
-        const explicitStart = timeStringToMinutes(m.time);
-        let start: number;
+      if (config && config.active) {
+        const dayStart = config.startMinutes;
+        const dayEnd = config.endMinutes;
 
-        if (explicitStart != null) {
-          start = explicitStart;
-        } else {
-          // Fallback for dummy meetings with no time: stack after lunch
-          if (meetingCursor >= dayEnd) return;
-          start = meetingCursor;
-          meetingCursor = start + duration;
-        }
+        if (dayEnd > dayStart) {
+          let cursor = dayStart;
 
-        let end = start + duration;
+          // work blocks, in global project order
+          orderedPriorities.forEach((p) => {
+            const doneFrom = projectDoneFromDayIndex[p.projectId];
+            const idxForDoneCompare = configIndex >= 0 ? configIndex : offset;
+            if (doneFrom !== undefined && idxForDoneCompare >= doneFrom) {
+              return;
+            }
 
-        // Clamp to the configured workday window
-        if (end <= dayStart || start >= dayEnd) {
-          return;
-        }
-        if (start < dayStart) start = dayStart;
-        if (end > dayEnd) end = dayEnd;
+            const minutesPerDay = (p.weeklyHours / activeDaysCount) * 60;
+            if (minutesPerDay <= 0) return;
+            if (cursor >= dayEnd) return;
 
-        reserved.push({
-          id: `${day.id}-mtg-${m.id ?? idx}`,
-          kind: "meeting",
-          label: m.title,
-          start,
-          end,
-          projectId: m.projectId,
-          meetingId: m.id,
-        });
-      });
+            const startMinutes = cursor;
+            const endMinutes = Math.min(
+              dayEnd,
+              cursor + Math.round(minutesPerDay)
+            );
+            if (endMinutes <= startMinutes) return;
 
-      // Sort reserved by time
-      reserved.sort((a, b) => a.start - b.start);
+            cursor = endMinutes;
 
-      // ---- Detect overlapping meetings on this day ----
-      const meetingBlocks = reserved
-        .filter((r) => r.kind === "meeting")
-        .sort((a, b) => a.start - b.start);
-
-      const conflictIds = new Set<string>();
-
-      for (let i = 0; i < meetingBlocks.length; i++) {
-        const a = meetingBlocks[i];
-        for (let j = i + 1; j < meetingBlocks.length; j++) {
-          const b = meetingBlocks[j];
-
-          // meetings are sorted; if b starts after a ends, no more overlaps for a
-          if (b.start >= a.end) break;
-
-          // overlap if time ranges intersect
-          if (a.start < b.end && b.start < a.end) {
-            conflictIds.add(a.id);
-            conflictIds.add(b.id);
-          }
-        }
-      }
-
-      const hasConflicts = conflictIds.size > 0;
-
-      // Build free segments as gaps between reserved blocks
-      const segments: { start: number; end: number }[] = [];
-      if (reserved.length === 0) {
-        segments.push({ start: dayStart, end: dayEnd });
-      } else {
-        let cursor = dayStart;
-        for (const r of reserved) {
-          if (r.start > cursor) {
-            segments.push({ start: cursor, end: r.start });
-          }
-          cursor = Math.max(cursor, r.end);
-        }
-        if (cursor < dayEnd) {
-          segments.push({ start: cursor, end: dayEnd });
-        }
-      }
-
-      // Seed blocks with reserved items (lunch + meetings)
-      reserved.forEach((r) => {
-        blocks.push({
-          id: r.id,
-          kind: r.kind,
-          label: r.label,
-          projectId: r.projectId,
-          meetingId: r.meetingId,
-          startMinutes: r.start,
-          endMinutes: r.end,
-          hasConflict: r.kind === "meeting" && conflictIds.has(r.id),
-        });
-      });
-
-      // Sequential scheduling: walk forward through segments and fill them with work
-      let segmentIndex = 0;
-      let cursor = segments.length > 0 ? segments[0].start : dayStart;
-
-      perDayMinutes.forEach((proj) => {
-        let remaining = proj.minutesPerDay;
-
-        while (remaining > 1) {
-          const seg = segments[segmentIndex];
-
-          // No more configured time → overflow past the end of the day
-          if (!seg) {
-            const overflowStart = cursor;
-            const slice = remaining;
-
-            const prev = cumulativeMinutesByProject.get(proj.projectId) ?? 0;
-            const next = prev + slice;
-            cumulativeMinutesByProject.set(proj.projectId, next);
+            const dailyHours = (endMinutes - startMinutes) / 60;
 
             blocks.push({
-              id: `${day.id}-${proj.projectId}-${blocks.length}`,
+              id: `${weekdayLabel}-work-${p.projectId}`,
               kind: "work",
-              label: proj.projectName,
-              projectId: proj.projectId,
-              startMinutes: overflowStart,
-              endMinutes: overflowStart + slice,
-              cumulativeMinutesAfter: next,
-              totalMinutesPlanned: totalMinutesByProject.get(proj.projectId),
+              label: getProjectLabel(p.projectId),
+              projectId: p.projectId,
+              startMinutes,
+              endMinutes,
+              weeklyHours: p.weeklyHours,
+              dailyHours,
+              timeLabel: `${minutesToLabel(startMinutes)} – ${minutesToLabel(
+                endMinutes
+              )}`,
             });
-
-            cursor += slice;
-            break;
-          }
-
-          // Ensure cursor is at least at the start of the current segment
-          if (cursor < seg.start) {
-            cursor = seg.start;
-          }
-
-          // If we've exhausted this segment, move to the next
-          if (cursor >= seg.end) {
-            segmentIndex++;
-            continue;
-          }
-
-          const space = seg.end - cursor;
-          if (space <= 0) {
-            segmentIndex++;
-            continue;
-          }
-
-          const slice = Math.min(space, remaining);
-          if (slice <= 1) break;
-
-          const prev = cumulativeMinutesByProject.get(proj.projectId) ?? 0;
-          const next = prev + slice;
-          cumulativeMinutesByProject.set(proj.projectId, next);
-
-          blocks.push({
-            id: `${day.id}-${proj.projectId}-${blocks.length}`,
-            kind: "work",
-            label: proj.projectName,
-            projectId: proj.projectId,
-            startMinutes: cursor,
-            endMinutes: cursor + slice,
-            cumulativeMinutesAfter: next,
-            totalMinutesPlanned: totalMinutesByProject.get(proj.projectId),
           });
 
-          cursor += slice;
-          remaining -= slice;
+          // meeting blocks (fixed times)
+          const meetingsWithTimes = getMeetingsWithTimes(meetingsForDay);
+          meetingsWithTimes.forEach(({ meeting, start, end }, idx) => {
+            const id = String((meeting as any).id ?? idx);
+            blocks.push({
+              id: `${weekdayLabel}-mtg-${id}`,
+              kind: "meeting",
+              label: meeting.title,
+              startMinutes: start,
+              endMinutes: end,
+              meetingId: id,
+              conflict: conflictIds.has(id),
+              timeLabel: `${minutesToLabel(start)} – ${minutesToLabel(end)}`,
+            });
+          });
 
-          if (cursor >= seg.end) {
-            segmentIndex++;
-          }
+          blocks.sort((a, b) => a.startMinutes - b.startMinutes);
         }
-      });
+      }
 
-      // sort by time so lunch, meetings & work appear in order
-      blocks.sort((a, b) => a.startMinutes - b.startMinutes);
+      const workHours = blocks
+        .filter((b) => b.kind === "work")
+        .reduce((sum, b) => sum + (b.endMinutes - b.startMinutes) / 60, 0);
 
-      return {
-        dayId: String(day.id),
-        label: day.label,
+      views.push({
+        iso,
+        dateLabel: formatDateLabel(iso),
+        config,
+        configIndex: configIndex >= 0 ? configIndex : null,
         blocks,
-        dayEndMinutes: dayEnd,
-        hasConflicts,
-      };
+        workHours,
+        hasMeetingConflict: hasAny,
+      });
+    }
+
+    return views;
+  }, [
+    weekStartIso,
+    days,
+    orderedPriorities,
+    activeDaysCount,
+    projectDoneFromDayIndex,
+  ]);
+
+  const totalPlannedWeeklyHours = priorities
+    .filter((p) => p.enabled)
+    .reduce((sum, p) => sum + p.weeklyHours, 0);
+
+  // DnD handler (per-day) — updates global project order
+  function makeHandleDayDragEnd(viewIdx: number) {
+    return (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const dayBlocks = dayViews[viewIdx].blocks;
+      const activeBlock = dayBlocks.find((b) => b.id === active.id);
+      const overBlock = dayBlocks.find((b) => b.id === over.id);
+      if (!activeBlock || !overBlock) return;
+
+      if (
+        activeBlock.kind !== "work" ||
+        overBlock.kind !== "work" ||
+        !activeBlock.projectId ||
+        !overBlock.projectId
+      ) {
+        return;
+      }
+
+      const projectIds = orderedPriorities.map((p) => p.projectId);
+
+      const oldIndex = projectIds.indexOf(activeBlock.projectId);
+      const newIndex = projectIds.indexOf(overBlock.projectId);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const newOrder = arrayMove(projectIds, oldIndex, newIndex);
+      setProjectOrder(newOrder);
+      saveProjectOrder(weekStartIso, newOrder);
+    };
+  }
+
+  const weekStartDate = parseIsoToLocalDate(weekStartIso);
+  const weekEndDate = parseIsoToLocalDate(addDaysIso(weekStartIso, 6));
+  const fmt = (d: Date) =>
+    d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
     });
-  }, [activeDays, effective, meetingsByDate, weekStartIso]);
 
   return (
     <section className="space-y-4">
-      {/* Daily schedule preview */}
-      {daySchedules.length > 0 && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-3 text-xs text-slate-200">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-100">
-              Proposed daily schedule
-            </h3>
-
-            {hasSavedPlan && viewMode && onViewModeChange && (
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-0.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => onViewModeChange("schedule")}
-                    className={[
-                      "rounded-full px-3 py-1.5 font-medium transition",
-                      viewMode === "schedule"
-                        ? "bg-emerald-500 text-slate-950"
-                        : "text-slate-300 hover:bg-slate-800",
-                    ].join(" ")}
-                  >
-                    Weekly schedule
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onViewModeChange("wizard")}
-                    className={[
-                      "rounded-full px-3 py-1.5 font-medium transition",
-                      viewMode === "wizard"
-                        ? "bg-sky-500 text-slate-950"
-                        : "text-slate-300 hover:bg-slate-800",
-                    ].join(" ")}
-                  >
-                    Plan builder
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {onSavePlan && (
-              <button
-                type="button"
-                onClick={onSavePlan}
-                className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm hover:bg-emerald-400"
-              >
-                Save weekly schedule
-              </button>
-            )}
+      {/* Summary header */}
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-3 text-xs text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-[13px] font-semibold text-slate-100">
+            Proposed daily schedule
           </div>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {daySchedules.map((day, dayIndex) => {
-              // Find matching day meta so we know the configured end time
-              const dayMeta = activeDays.find(
-                (d) => String(d.id) === day.dayId
-              );
-              const dayEnd = dayMeta?.endMinutes ?? day.dayEndMinutes;
-
-              // Figure out how much time becomes "free" for this day,
-              // and what's the last non-free block end time.
-              let freedMinutes = 0;
-              let lastNonFreeEnd = 0;
-
-              day.blocks.forEach((b) => {
-                const projectId = b.projectId;
-                const doneFromIndex =
-                  projectId != null
-                    ? projectDoneFromDayIndex[projectId]
-                    : undefined;
-
-                const isFreeBlock =
-                  b.kind === "work" &&
-                  projectId != null &&
-                  doneFromIndex !== undefined &&
-                  dayIndex >= doneFromIndex;
-
-                if (isFreeBlock) {
-                  freedMinutes += b.endMinutes - b.startMinutes;
-                } else {
-                  lastNonFreeEnd = Math.max(lastNonFreeEnd, b.endMinutes);
-                }
-              });
-
-              const freeStart =
-                freedMinutes > 0
-                  ? Math.max(lastNonFreeEnd, dayEnd - freedMinutes)
-                  : null;
-              const freeEnd = freedMinutes > 0 ? dayEnd : null;
-
-              const workMinutes = day.blocks.reduce((sum, b) => {
-                if (b.kind !== "work") return sum;
-                const projectId = b.projectId;
-                const doneFromIndex =
-                  projectId != null
-                    ? projectDoneFromDayIndex[projectId]
-                    : undefined;
-
-                const isFreeBlock =
-                  b.kind === "work" &&
-                  projectId != null &&
-                  doneFromIndex !== undefined &&
-                  dayIndex >= doneFromIndex;
-
-                if (isFreeBlock) return sum; // don't count freed time as "work"
-                return sum + (b.endMinutes - b.startMinutes);
-              }, 0);
-              return (
-                <div
-                  key={day.dayId}
-                  className="rounded-xl border border-slate-800 bg-slate-950/80 p-2"
-                >
-                  <div className="mb-1 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[16px] font-semibold text-slate-100">
-                        {day.label}
-                      </span>
-                      {day.hasConflicts && (
-                        <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-200 border border-rose-500/60">
-                          Meeting conflict
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[11px] text-slate-400">
-                      {(workMinutes / 60).toFixed(1)}h work
-                    </span>
-                  </div>
-
-                  <ul className="space-y-1.5 text-[11px]">
-                    {day.blocks.map((b) => {
-                      const projectId = b.projectId;
-                      const doneFromIndex =
-                        projectId != null
-                          ? projectDoneFromDayIndex[projectId]
-                          : undefined;
-
-                      const isFreedBlock =
-                        b.kind === "work" &&
-                        projectId != null &&
-                        doneFromIndex !== undefined &&
-                        dayIndex >= doneFromIndex;
-
-                      // Don't render individual freed blocks; they'll be collapsed into
-                      // one "Free time" block at the end of the list.
-                      if (isFreedBlock) {
-                        return null;
-                      }
-
-                      const isOverflow =
-                        b.kind === "work" && b.endMinutes > day.dayEndMinutes;
-
-                      const tone = isOverflow
-                        ? "bg-rose-500/15 text-rose-100 border border-rose-400/60"
-                        : b.kind === "work"
-                        ? "bg-sky-500/10 text-sky-100"
-                        : b.kind === "meeting" && b.hasConflict
-                        ? "bg-rose-500/20 text-rose-50 border border-rose-400/80"
-                        : b.kind === "meeting"
-                        ? "bg-violet-500/15 text-violet-100 border border-violet-400/60"
-                        : "bg-amber-500/10 text-amber-100"; // lunch
-
-                      const durationHours =
-                        (b.endMinutes - b.startMinutes) / 60;
-
-                      const workedHours =
-                        b.kind === "work" && b.cumulativeMinutesAfter != null
-                          ? b.cumulativeMinutesAfter / 60
-                          : null;
-                      const totalHours =
-                        b.kind === "work" && b.totalMinutesPlanned != null
-                          ? b.totalMinutesPlanned / 60
-                          : null;
-
-                      const labelText =
-                        b.kind === "lunch" ? "Lunch break" : b.label;
-
-                      return (
-                        <li
-                          key={b.id}
-                          onClick={() => {
-                            // Click behavior for work blocks: mark project "done from this day"
-                            if (b.kind === "work") {
-                              const pid = b.projectId;
-                              if (!pid) return;
-
-                              onProjectDoneFromDayIndexChange((prev) => {
-                                const existing = prev[pid];
-
-                                if (
-                                  existing !== undefined &&
-                                  existing === dayIndex
-                                ) {
-                                  const copy: Record<string, number> = {
-                                    ...prev,
-                                  };
-                                  delete copy[pid];
-                                  return copy;
-                                }
-
-                                return {
-                                  ...prev,
-                                  [pid]: dayIndex,
-                                };
-                              });
-
-                              return;
-                            }
-
-                            // Click behavior for meeting blocks: cancel from schedule
-                            if (b.kind === "meeting") {
-                              const meetingId = b.meetingId;
-                              if (!meetingId) return; // narrow to string
-
-                              setCancelledMeetingIds((prev) =>
-                                prev.includes(meetingId)
-                                  ? prev
-                                  : [...prev, meetingId]
-                              );
-                            }
-                          }}
-                          className={[
-                            "flex items-center justify-between rounded-lg px-2 py-1 cursor-pointer",
-                            tone,
-                          ].join(" ")}
-                        >
-                          <div>
-                            <div className="text-[15px]">{labelText}</div>
-                            <div className="text-[13px] text-slate-300/50">
-                              {formatMinutes(b.startMinutes)} –{" "}
-                              {formatMinutes(b.endMinutes)}
-                            </div>
-                          </div>
-
-                          {/* Right side tally: only for active work blocks */}
-                          {b.kind === "work" &&
-                            workedHours != null &&
-                            totalHours != null && (
-                              <div className="ml-3 text-[13px] font-semibold text-slate-50">
-                                {workedHours.toFixed(1)} /{" "}
-                                {totalHours.toFixed(1)} hrs
-                              </div>
-                            )}
-
-                          {b.kind === "meeting" && (
-                            <div className="ml-3 flex flex-col items-end gap-1">
-                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
-                                <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
-                              </div>
-                              {b.hasConflict && (
-                                <span className="rounded-full bg-rose-500 px-2 py-px text-[10px] font-semibold text-slate-950">
-                                  Conflict
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-
-                    {/* Collapsed free-time block at end-of-day */}
-                    {freeStart != null && freeEnd != null && (
-                      <li
-                        className="flex items-center justify-between rounded-lg px-2 py-1
-                 bg-emerald-500/5 text-emerald-200 border border-emerald-400/40"
-                      >
-                        <div>
-                          <div className="text-[15px]">
-                            Free time (personal)
-                          </div>
-                          <div className="text-[13px] text-slate-300/50">
-                            {formatMinutes(freeStart)} –{" "}
-                            {formatMinutes(freeEnd)}
-                          </div>
-                        </div>
-                        <div className="ml-3 text-[13px] font-semibold text-emerald-100">
-                          {(freedMinutes / 60).toFixed(1)}h
-                        </div>
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
+          <p className="text-[13px] text-slate-400">
+            Week of{" "}
+            <span className="font-medium text-slate-200">
+              {fmt(weekStartDate)}
+            </span>{" "}
+            –{" "}
+            <span className="font-medium text-slate-200">
+              {fmt(weekEndDate)}
+            </span>
+            . Drag projects within a day to change the order for the entire
+            week.
+          </p>
         </div>
-      )}
-
-      {/* Capacity summary */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-xs text-slate-200">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-[11px] text-slate-400">
-              Total available hours (from your weekly config)
-            </div>
-            <div className="text-lg font-semibold">
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+          <span className="rounded-full bg-slate-900/80 px-3 py-1">
+            Planned{" "}
+            <span className="font-semibold text-slate-100">
+              {totalPlannedWeeklyHours.toFixed(1)}h
+            </span>{" "}
+            / Available{" "}
+            <span className="font-semibold text-slate-100">
               {totalAvailableHours.toFixed(1)}h
-            </div>
-            <div className="mt-1 text-[11px] text-slate-500">
-              Across {activeDays.length} active day
-              {activeDays.length === 1 ? "" : "s"} (
-              {totalActiveHours.toFixed(1)}h of configured work time)
-            </div>
-          </div>
-
-          <div className="sm:text-right">
-            <div className="text-[11px] text-slate-400">
-              Planned project hours (from priorities)
-            </div>
-            <div className="text-lg font-semibold">
-              {totalPlannedHours.toFixed(1)}h
-            </div>
-            <div className="mt-1 text-[11px] text-slate-500">
-              Average {avgPerDay.toFixed(1)}h per active day
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px]">
-          {overCapacity ? (
-            <p className="text-rose-300">
-              You are{" "}
-              <span className="font-semibold">
-                {Math.abs(delta).toFixed(1)}h
-              </span>{" "}
-              <span>over capacity this week.</span>{" "}
-              <span className="text-rose-200">
-                Either reduce project hours, skip a project, or expand your day
-                windows.
-              </span>
-            </p>
-          ) : (
-            <p className="text-emerald-300">
-              You are within capacity, with{" "}
-              <span className="font-semibold">{delta.toFixed(1)}h</span> of
-              slack time available.
-            </p>
+            </span>
+          </span>
+          {hasSavedPlan && (
+            <span className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-emerald-300">
+              Plan saved
+            </span>
           )}
         </div>
       </div>
 
-      {/* Project breakdown */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-3 text-xs text-slate-200">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-100">
-            Projects in this week
-          </h3>
-          <span className="text-[13px] text-slate-400">
-            {includedProjects.length} included / {effective.length} total
-          </span>
-        </div>
+      {/* Day cards */}
+      <div className="grid gap-3 md:grid-cols-2">
+        {dayViews.map((view, idx) => {
+          const { dateLabel, config, blocks, workHours, hasMeetingConflict } =
+            view;
+          const isActive = config?.active ?? false;
 
-        {effective.length === 0 ? (
-          <p className="text-[11px] text-slate-400">
-            No projects configured. Go back to Focus & Priority to set up your
-            week.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-separate border-spacing-y-1 text-left text-[20px]">
-              <thead className="text-slate-400">
-                <tr>
-                  <th className="px-2 py-1">Project</th>
-                  <th className="px-2 py-1 hidden sm:table-cell">Company</th>
-                  <th className="px-2 py-1 text-right">Hours</th>
-                  <th className="px-2 py-1 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {effective.map((p) => {
-                  const isIncluded = p.included;
-                  const tone = isIncluded
-                    ? "text-emerald-300 bg-emerald-500/5 border-emerald-500/40"
-                    : "text-slate-400 bg-slate-800/40 border-slate-700/70";
+          return (
+            <div
+              key={idx}
+              className={[
+                "flex flex-col rounded-2xl border px-3 py-3 text-xs transition",
+                isActive
+                  ? "border-slate-700 bg-slate-950/80"
+                  : "border-slate-900 bg-slate-950/40 opacity-60",
+              ].join(" ")}
+            >
+              {/* Header */}
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {dateLabel}
+                  </div>
+                  {!isActive && (
+                    <div className="text-[11px] text-slate-500">
+                      Non-work day
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {hasMeetingConflict && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-600/15 px-2 py-[2px] text-[10px] font-semibold text-rose-200">
+                      <AlertTriangle className="h-3 w-3" />
+                      Meeting conflict
+                    </span>
+                  )}
+                  {isActive && (
+                    <span className="text-[11px] font-semibold text-emerald-300">
+                      {workHours.toFixed(1)}h work
+                    </span>
+                  )}
+                </div>
+              </div>
 
-                  return (
-                    <tr key={p.projectId}>
-                      <td className="px-2 py-1 align-top">
-                        <div className="font-semibold text-slate-100">
-                          {p.projectName}
-                        </div>
-                        {p.companyName && (
-                          <div className="text-[10px] text-slate-400">
-                            {p.companyName}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-1 align-top hidden sm:table-cell text-slate-400">
-                        {p.companyName ?? "—"}
-                      </td>
-                      <td className="px-2 py-1 align-top text-right text-slate-100">
-                        {p.weeklyHours.toFixed(1)}h
-                      </td>
-                      <td className="px-2 py-1 align-top text-right">
-                        <span
-                          className={[
-                            "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px]",
-                            tone,
-                          ].join(" ")}
-                        >
-                          {isIncluded ? "Included" : "Skipped"}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+              {!isActive && (
+                <p className="text-[11px] text-slate-500">
+                  This day is turned off in your weekly planner.
+                </p>
+              )}
+
+              {isActive && blocks.length === 0 && (
+                <p className="text-[11px] text-slate-500">
+                  No work blocks generated for this day yet.
+                </p>
+              )}
+
+              {isActive && blocks.length > 0 && (
+                <ul className="space-y-1.5 text-[11px]">
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={makeHandleDayDragEnd(idx)}
+                  >
+                    <SortableContext
+                      items={blocks.map((b) => b.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      {blocks.map((block) => (
+                        <DayBlockRow key={block.id} block={block} />
+                      ))}
+                    </SortableContext>
+                  </DndContext>
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      {/* Action row */}
+      <footer className="flex flex-col items-start justify-between gap-3 border-t border-slate-800 pt-4 text-[11px] text-slate-400 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onSavePlan}
+            className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm hover:bg-emerald-400"
+          >
+            Save weekly schedule
+          </button>
+          {viewMode === "wizard" ? (
+            <button
+              type="button"
+              onClick={() => onViewModeChange("schedule")}
+              className="rounded-full border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-900"
+            >
+              View schedule only
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onViewModeChange("wizard")}
+              className="rounded-full border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-900"
+            >
+              Back to wizard
+            </button>
+          )}
+        </div>
+        <p>
+          Drag projects to adjust order; meetings stay fixed at their start
+          times. Project order is saved for this week and reused across all
+          days.
+        </p>
+      </footer>
     </section>
   );
 }

@@ -70,6 +70,22 @@ function saveDailyOrder(dateIso: string, order: string[]) {
   }
 }
 
+const PROJECT_ORDER_KEY_PREFIX = "tessera:plannerProjectOrder:";
+
+function loadProjectOrder(weekStartIso: string): string[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(
+      PROJECT_ORDER_KEY_PREFIX + weekStartIso
+    );
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : null;
+  } catch {
+    return null;
+  }
+}
+
 // --- Local-storage helpers for per-block time overrides (per day) ---
 const DAILY_TIME_OVERRIDES_KEY = "tessera:dailyRundownOverrides";
 
@@ -209,11 +225,14 @@ export default function DashboardMeetingsPanel() {
   const [savedPlan, setSavedPlan] = useState<SavedWeeklyPlan | null>(null);
   const [showRundown, setShowRundown] = useState(true);
   const [showCalendar, setShowCalendar] = useState(true);
-  const [todayOrder, setTodayOrder] = useState<string[] | null>(null);
+
   const [todayOverrides, setTodayOverrides] = useState<Record<
     string,
     DailyTimeOverride
   > | null>(null);
+
+  const [todayOrder, setTodayOrder] = useState<string[] | null>(null);
+  const [projectOrder, setProjectOrder] = useState<string[] | null>(null);
 
   // edit-dialog state
   const [editBlock, setEditBlock] = useState<TodayBlock | null>(null);
@@ -243,6 +262,19 @@ export default function DashboardMeetingsPanel() {
     const plan = loadSavedWeeklyPlan(weekStartIso);
     setSavedPlan(plan);
   }, []);
+
+  useEffect(() => {
+    if (!savedPlan) return;
+    // SavedWeeklyPlan already stores weekStartIso
+    const order = loadProjectOrder(savedPlan.weekStartIso);
+    setProjectOrder(order);
+  }, [savedPlan]);
+
+  useEffect(() => {
+    if (!savedPlan) return;
+    const order = loadProjectOrder(savedPlan.weekStartIso);
+    setProjectOrder(order);
+  }, [savedPlan]);
 
   // Load saved DRD order + overrides for the current anchor date
   useEffect(() => {
@@ -337,148 +369,102 @@ export default function DashboardMeetingsPanel() {
   const todayBlocksBase: TodayBlock[] = useMemo(() => {
     if (!savedPlan || !todayPlan || todayPlan.status !== "work") return [];
 
-    const dayStart = todayPlan.windowStart;
-    const dayEnd = todayPlan.windowEnd;
+    const days = savedPlan.days;
+    const activeDays = days.filter((d) => d.active);
+    if (!activeDays.length) return [];
+
+    const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    const [y, m, d] = today.split("-").map(Number);
+    const dateObj = new Date(y, (m || 1) - 1, d || 1);
+    const dayIdx = dateObj.getDay();
+    const label = weekdayLabels[dayIdx];
+
+    const configIndex = days.findIndex((cfg) => cfg.label === label);
+    const config = configIndex >= 0 ? days[configIndex] : null;
+    if (!config || !config.active) return [];
+
+    const dayStart = config.startMinutes;
+    const dayEnd = config.endMinutes;
     if (dayEnd <= dayStart) return [];
 
-    const plannedMinutes = todayPlan.plannedHours * 60;
+    // Enabled priorities from the saved plan
+    const enabledPriorities = savedPlan.priorities.filter(
+      (p) => p.enabled && p.weeklyHours > 0
+    );
+    if (!enabledPriorities.length) return [];
 
-    const LUNCH_START = 12 * 60;
-    const LUNCH_END = LUNCH_START + 30;
+    // Respect global project order from Finalize
+    const idsInPlan = enabledPriorities.map((p) => p.projectId);
+    const baseOrder = projectOrder?.length
+      ? projectOrder.filter((id) => idsInPlan.includes(id))
+      : idsInPlan;
+    const remaining = idsInPlan.filter((id) => !baseOrder.includes(id));
+    const orderedIds = [...baseOrder, ...remaining];
 
-    type Reserved = {
-      id: string;
-      kind: "lunch" | "meeting";
-      label: string;
-      start: number;
-      end: number;
-    };
+    const activeDaysCount = activeDays.length || 1;
 
-    const reserved: Reserved[] = [];
+    const blocks: TodayBlock[] = [];
+    let cursor = dayStart;
 
-    // Lunch if it fits in the window
-    const lunchFits =
-      dayStart <= LUNCH_START &&
-      LUNCH_END <= dayEnd &&
-      LUNCH_END - LUNCH_START <= dayEnd - dayStart;
+    // One block per project for today (same idea as Finalize)
+    orderedIds.forEach((projectId) => {
+      const row = enabledPriorities.find((p) => p.projectId === projectId);
+      if (!row) return;
 
-    if (lunchFits) {
-      reserved.push({
-        id: "lunch-today",
-        kind: "lunch",
-        label: "Lunch break",
-        start: LUNCH_START,
-        end: LUNCH_END,
+      const doneFrom = savedPlan.projectDoneFromDayIndex?.[projectId];
+      if (
+        doneFrom !== undefined &&
+        configIndex >= 0 &&
+        configIndex >= doneFrom
+      ) {
+        // This project is marked done from an earlier day onward
+        return;
+      }
+
+      const minutesPerDay = (row.weeklyHours / activeDaysCount) * 60;
+      if (minutesPerDay <= 0) return;
+      if (cursor >= dayEnd) return;
+
+      const startMinutes = cursor;
+      const endMinutes = Math.min(dayEnd, cursor + Math.round(minutesPerDay));
+      if (endMinutes <= startMinutes) return;
+
+      cursor = endMinutes;
+
+      blocks.push({
+        id: `work-${projectId}`,
+        kind: "work",
+        label: getProjectLabel(projectId),
+        startMinutes,
+        endMinutes,
       });
-    }
+    });
 
-    // Meetings as 30m blocks based on their time field
+    // Meeting blocks (locked in place)
     todayMeetings.forEach((m, idx) => {
       const startMinutes = timeToMinutes(m.time);
       if (startMinutes == null) return;
 
-      let start = startMinutes;
-      let end = start + 30;
+      const start = startMinutes;
+      const end = start + 30; // your 30m default
 
-      if (end <= dayStart || start >= dayEnd) return;
-      start = Math.max(start, dayStart);
-      end = Math.min(end, dayEnd);
-      if (end <= start) return;
-
-      reserved.push({
+      // We don't clamp here: DRD is just a visual timeline, and
+      // you already have a time-edit dialog for fine-tuning.
+      blocks.push({
         id: `mtg-${m.id ?? idx}`,
         kind: "meeting",
         label: m.title,
-        start,
-        end,
+        startMinutes: start,
+        endMinutes: end,
       });
     });
 
-    reserved.sort((a, b) => a.start - b.start);
+    // Sort everything by time
+    blocks.sort((a, b) => a.startMinutes - b.startMinutes);
 
-    // Build free segments between reserved blocks
-    const segments: { start: number; end: number }[] = [];
-    if (reserved.length === 0) {
-      segments.push({ start: dayStart, end: dayEnd });
-    } else {
-      let cursor = dayStart;
-      for (const r of reserved) {
-        if (r.start > cursor) {
-          segments.push({ start: cursor, end: r.start });
-        }
-        cursor = Math.max(cursor, r.end);
-      }
-      if (cursor < dayEnd) {
-        segments.push({ start: cursor, end: dayEnd });
-      }
-    }
-
-    const workBlocks: TodayBlock[] = [];
-    let remaining = plannedMinutes;
-    let blockCount = 0;
-
-    for (const seg of segments) {
-      if (remaining <= 1) break;
-      const space = seg.end - seg.start;
-      if (space <= 0) continue;
-
-      const slice = Math.min(space, remaining);
-      if (slice <= 1) continue;
-
-      workBlocks.push({
-        id: `work-${blockCount++}`,
-        kind: "work",
-        label: "Deep work",
-        startMinutes: seg.start,
-        endMinutes: seg.start + slice,
-      });
-
-      remaining -= slice;
-    }
-
-    // Combine reserved + work, then fill free gaps
-    const baseBlocks: TodayBlock[] = [
-      ...reserved.map((r) => ({
-        id: r.id,
-        kind: r.kind,
-        label: r.label,
-        startMinutes: r.start,
-        endMinutes: r.end,
-      })),
-      ...workBlocks,
-    ];
-
-    baseBlocks.sort((a, b) => a.startMinutes - b.startMinutes);
-
-    const fullTimeline: TodayBlock[] = [];
-    let cursor = dayStart;
-
-    for (const b of baseBlocks) {
-      if (b.startMinutes > cursor) {
-        fullTimeline.push({
-          id: `free-before-${b.id}`,
-          kind: "free",
-          label: "Free / personal",
-          startMinutes: cursor,
-          endMinutes: b.startMinutes,
-        });
-      }
-      fullTimeline.push(b);
-      cursor = Math.max(cursor, b.endMinutes);
-    }
-
-    if (cursor < dayEnd) {
-      fullTimeline.push({
-        id: "free-end",
-        kind: "free",
-        label: "Free / personal",
-        startMinutes: cursor,
-        endMinutes: dayEnd,
-      });
-    }
-
-    return fullTimeline;
-  }, [savedPlan, todayPlan, todayMeetings]);
+    return blocks;
+  }, [savedPlan, todayPlan, today, projectOrder, todayMeetings]);
 
   // Apply any time overrides for this specific day (non-meeting/lunch only)
   const todayBlocksWithOverrides: TodayBlock[] = useMemo(() => {
@@ -565,6 +551,14 @@ export default function DashboardMeetingsPanel() {
   function closeEditDialog() {
     setEditBlock(null);
     setEditError(null);
+  }
+
+  function getProjectLabel(projectId: string): string {
+    if (!savedPlan) return projectId;
+    const row = savedPlan.priorities.find(
+      (p) => p.projectId === projectId
+    ) as any;
+    return row?.label ?? row?.name ?? projectId;
   }
 
   function handleEditSave() {
