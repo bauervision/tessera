@@ -26,6 +26,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   DailyTimeOverride,
+  enforceWindowCapacityByPosition,
   formatMinutes,
   getCurrentWeekMondayIsoLocal,
   getProjectLabel,
@@ -315,24 +316,33 @@ export default function DailyRundown() {
     const newIndex = current.findIndex((b) => b.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
-    // 1) Reorder the list visually
-    const moved = arrayMove(current, oldIndex, newIndex);
+    // 1) Apply drag reorder
+    let moved = arrayMove(current, oldIndex, newIndex);
+
+    if (!todayPlan || todayPlan.status !== "work") {
+      const newOrder = moved.map((b) => b.id);
+      setTodayOrder(newOrder);
+      saveDailyOrder(today, newOrder);
+      return;
+    }
+
+    const { windowStart, windowEnd } = todayPlan;
+
+    // 2) Enforce capacity per window (pop overflow blocks to end of day)
+    moved = enforceWindowCapacityByPosition(moved, windowStart, windowEnd);
+
+    // 3) Persist the new visual order
     const newOrder = moved.map((b) => b.id);
     setTodayOrder(newOrder);
     saveDailyOrder(today, newOrder);
 
-    // 2) Auto-reslice the times based on position + meetings/lunch
-    if (!todayPlan || todayPlan.status !== "work") return;
-
-    const { windowStart, windowEnd } = todayPlan;
-
+    // 4) Rebalance times into 30-minute slots for flexible blocks
     const rebalanced = rebalanceDayBlocksByPosition(
       moved,
       windowStart,
       windowEnd
     );
 
-    // 3) Build & persist overrides for flexible blocks
     const overridesForDay: Record<string, DailyTimeOverride> = {};
 
     for (const b of rebalanced) {

@@ -145,6 +145,117 @@ export function isLockedBlock(block: TodayBlock): boolean {
   return block.kind === "meeting" || block.kind === "lunch";
 }
 
+export function enforceWindowCapacityByPosition(
+  blocks: TodayBlock[],
+  dayStart: number,
+  dayEnd: number
+): TodayBlock[] {
+  if (dayEnd <= dayStart) return blocks;
+
+  // Pair each block with its index so we know where it sits in the list
+  const lockedInfos = blocks
+    .map((block, index) => ({ block, index }))
+    .filter(({ block }) => isLockedBlock(block))
+    // sort locked by start time
+    .sort((a, b) => a.block.startMinutes - b.block.startMinutes);
+
+  type Window = {
+    start: number;
+    end: number;
+    startIndex: number;
+    endIndex: number;
+  };
+
+  const windows: Window[] = [];
+
+  let prevLockedEndTime = dayStart;
+  let prevLockedIndex = -1;
+
+  // Windows between meetings/lunch blocks
+  for (let i = 0; i < lockedInfos.length; i++) {
+    const lock = lockedInfos[i];
+
+    const windowStart = prevLockedEndTime;
+    const windowEnd = Math.min(lock.block.startMinutes, dayEnd);
+    const startIndex = prevLockedIndex + 1;
+    const endIndex = lock.index - 1;
+
+    if (windowEnd > windowStart && endIndex >= startIndex) {
+      windows.push({
+        start: windowStart,
+        end: windowEnd,
+        startIndex,
+        endIndex,
+      });
+    }
+
+    prevLockedEndTime = Math.max(prevLockedEndTime, lock.block.endMinutes);
+    prevLockedIndex = lock.index;
+  }
+
+  // Tail window after the last meeting
+  const lastStartIndex = prevLockedIndex + 1;
+  const lastWindowStart = prevLockedEndTime;
+  const lastWindowEnd = dayEnd;
+
+  if (lastWindowEnd > lastWindowStart && lastStartIndex <= blocks.length - 1) {
+    windows.push({
+      start: lastWindowStart,
+      end: lastWindowEnd,
+      startIndex: lastStartIndex,
+      endIndex: blocks.length - 1,
+    });
+  }
+
+  // Collect IDs that should be "popped out" of their window
+  const poppedIds = new Set<string>();
+
+  for (const win of windows) {
+    const span = win.end - win.start;
+    const totalSlots = Math.floor(span / SLOT_MINUTES);
+    if (totalSlots <= 0) continue;
+
+    const flexIndices: number[] = [];
+    for (let i = win.startIndex; i <= win.endIndex; i++) {
+      const b = blocks[i];
+      if (!isLockedBlock(b)) {
+        flexIndices.push(i);
+      }
+    }
+
+    if (!flexIndices.length) continue;
+
+    const maxFlex = totalSlots;
+
+    if (flexIndices.length > maxFlex) {
+      const overflowCount = flexIndices.length - maxFlex;
+      // Pop the *last* flexible blocks in this segment
+      const popIndices = flexIndices.slice(-overflowCount);
+      for (const idx of popIndices) {
+        poppedIds.add(blocks[idx].id);
+      }
+    }
+  }
+
+  if (poppedIds.size === 0) {
+    return blocks;
+  }
+
+  // Rebuild: keep non-popped in place, append popped at the very end
+  const kept: TodayBlock[] = [];
+  const popped: TodayBlock[] = [];
+
+  for (const b of blocks) {
+    if (poppedIds.has(b.id)) {
+      popped.push(b);
+    } else {
+      kept.push(b);
+    }
+  }
+
+  return [...kept, ...popped];
+}
+
 /**
  * Rebalance flexible blocks ("work" / "free") into 30-minute slots
  * based on their *position* in the list:
