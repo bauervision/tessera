@@ -282,6 +282,7 @@ export default function WeeklyPlannerClient() {
               defaultStartMinutes={defaultStartMinutes}
               defaultEndMinutes={defaultEndMinutes}
               onChangeDefaults={handleDefaultsChange}
+              // weekStartIso={weekStartIso}
             />
           )}
 

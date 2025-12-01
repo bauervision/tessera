@@ -1,5 +1,7 @@
+// components/DashboardMeetingPanel.tsx
 "use client";
 
+import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   loadJobsAndProjects,
@@ -17,31 +19,207 @@ import {
 } from "@/lib/calendarHelpers";
 import { MeetingCard } from "./ui/Meetingcard";
 import { loadSavedWeeklyPlan, type SavedWeeklyPlan } from "@/lib/weeklyPlanner";
-import { getCurrentWeekMondayIso } from "@/app/planner/helpers";
 import { CalendarDays } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+function getCurrentWeekMondayIsoLocal(): string {
+  const now = new Date();
+  const day = now.getDay(); // 0 = Sun
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
+  const monday = new Date(now.setDate(diff));
+  return monday.toISOString().slice(0, 10);
+}
+
+// --- Local-storage helpers for daily DRD order ---
+const DAILY_ORDER_KEY = "tessera:dailyRundownOrder";
+type DailyOrderMap = Record<string, string[]>; // dateIso -> block IDs
+
+function loadDailyOrderMap(): DailyOrderMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(DAILY_ORDER_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as DailyOrderMap;
+  } catch {
+    return {};
+  }
+}
+
+function saveDailyOrder(dateIso: string, order: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const map = loadDailyOrderMap();
+    map[dateIso] = order;
+    window.localStorage.setItem(DAILY_ORDER_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+// --- Local-storage helpers for per-block time overrides (per day) ---
+const DAILY_TIME_OVERRIDES_KEY = "tessera:dailyRundownOverrides";
+
+type DailyTimeOverride = {
+  startMinutes: number;
+  endMinutes: number;
+};
+
+type DailyTimeOverridesMap = Record<
+  string, // dateIso
+  Record<string, DailyTimeOverride> // blockId -> override
+>;
+
+function loadDailyTimeOverrides(): DailyTimeOverridesMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(DAILY_TIME_OVERRIDES_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as DailyTimeOverridesMap;
+  } catch {
+    return {};
+  }
+}
+
+function saveDailyTimeOverride(
+  dateIso: string,
+  blockId: string,
+  override: DailyTimeOverride
+) {
+  if (typeof window === "undefined") return;
+  try {
+    const map = loadDailyTimeOverrides();
+    const dayOverrides = map[dateIso] ?? {};
+    dayOverrides[blockId] = override;
+    map[dateIso] = dayOverrides;
+    window.localStorage.setItem(DAILY_TIME_OVERRIDES_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+function formatMinutes(mins: number): string {
+  const total = Math.round(mins);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+function timeToMinutes(t: string | null | undefined): number | null {
+  if (!t) return null;
+  const [hh, mm] = t.split(":").map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return hh * 60 + mm;
+}
+
+type TodayBlock = {
+  id: string;
+  kind: "work" | "lunch" | "meeting" | "free";
+  label: string;
+  startMinutes: number;
+  endMinutes: number;
+};
+
+// Sortable row for DRD – meetings & lunch are not draggable or editable
+function TodayBlockRow({
+  block,
+  timeLabel,
+  onEdit,
+}: {
+  block: TodayBlock;
+  timeLabel: string;
+  onEdit: (block: TodayBlock) => void;
+}) {
+  const isLocked = block.kind === "meeting" || block.kind === "lunch";
+
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({
+      id: block.id,
+      disabled: isLocked,
+    });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    cursor: isLocked ? "default" : "grab",
+  };
+
+  const tone =
+    block.kind === "work"
+      ? "bg-sky-500/10 text-sky-100"
+      : block.kind === "meeting"
+      ? "bg-violet-500/15 text-violet-100 border border-violet-400/60"
+      : block.kind === "lunch"
+      ? "bg-amber-500/10 text-amber-100 border border-amber-400/60"
+      : "bg-emerald-500/5 text-emerald-100 border border-emerald-400/40";
+
+  const labelText =
+    block.kind === "lunch"
+      ? "Lunch break"
+      : block.kind === "free"
+      ? "Free time (personal)"
+      : block.label;
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...(!isLocked ? listeners : {})}
+      onClick={() => {
+        if (!isLocked) onEdit(block);
+      }}
+      className={[
+        "flex items-center justify-between rounded-lg px-2 py-1",
+        tone,
+      ].join(" ")}
+    >
+      <div>
+        <div className="text-[15px]">{labelText}</div>
+        <div className="text-[13px] text-slate-300/50">{timeLabel}</div>
+      </div>
+
+      {block.kind === "meeting" && (
+        <div className="ml-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
+          <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
+        </div>
+      )}
+    </li>
+  );
+}
 
 export default function DashboardMeetingsPanel() {
-  const [anchorDateIso, setAnchorDateIso] = useState<string>(todayIso);
+  const [anchorDateIso, setAnchorDateIso] = useState<string>(todayIso());
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const { jobs } = useMemo(() => loadJobsAndProjects(), [refreshKey]);
   const [savedPlan, setSavedPlan] = useState<SavedWeeklyPlan | null>(null);
   const [showRundown, setShowRundown] = useState(true);
   const [showCalendar, setShowCalendar] = useState(true);
+  const [todayOrder, setTodayOrder] = useState<string[] | null>(null);
+  const [todayOverrides, setTodayOverrides] = useState<Record<
+    string,
+    DailyTimeOverride
+  > | null>(null);
 
-  function formatMinutes(mins: number): string {
-    const total = Math.round(mins);
-    const h = Math.floor(total / 60);
-    const m = total % 60;
-    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-  }
-
-  function timeToMinutes(t: string | null | undefined): number | null {
-    if (!t) return null;
-    const [hh, mm] = t.split(":").map(Number);
-    if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
-    return hh * 60 + mm;
-  }
+  // edit-dialog state
+  const [editBlock, setEditBlock] = useState<TodayBlock | null>(null);
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -61,10 +239,20 @@ export default function DashboardMeetingsPanel() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const weekStartIso = getCurrentWeekMondayIso();
+    const weekStartIso = getCurrentWeekMondayIsoLocal();
     const plan = loadSavedWeeklyPlan(weekStartIso);
     setSavedPlan(plan);
   }, []);
+
+  // Load saved DRD order + overrides for the current anchor date
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const map = loadDailyOrderMap();
+    setTodayOrder(map[anchorDateIso] ?? null);
+
+    const overridesMap = loadDailyTimeOverrides();
+    setTodayOverrides(overridesMap[anchorDateIso] ?? null);
+  }, [anchorDateIso]);
 
   const jobsById = useMemo(() => {
     const map = new Map<string, Job>();
@@ -115,7 +303,8 @@ export default function DashboardMeetingsPanel() {
     if (!activeDays.length) return null;
 
     const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const dateObj = new Date(today);
+    const [y, m, d] = today.split("-").map(Number);
+    const dateObj = new Date(y, (m || 1) - 1, d || 1);
     const dayIdx = dateObj.getDay();
     const label = weekdayLabels[dayIdx];
 
@@ -145,15 +334,7 @@ export default function DashboardMeetingsPanel() {
     };
   }, [savedPlan, today]);
 
-  type TodayBlock = {
-    id: string;
-    kind: "work" | "lunch" | "meeting" | "free";
-    label: string;
-    startMinutes: number;
-    endMinutes: number;
-  };
-
-  const todayBlocks: TodayBlock[] = useMemo(() => {
+  const todayBlocksBase: TodayBlock[] = useMemo(() => {
     if (!savedPlan || !todayPlan || todayPlan.status !== "work") return [];
 
     const dayStart = todayPlan.windowStart;
@@ -191,13 +372,13 @@ export default function DashboardMeetingsPanel() {
       });
     }
 
-    // Meetings as 1h blocks based on their time field
+    // Meetings as 30m blocks based on their time field
     todayMeetings.forEach((m, idx) => {
       const startMinutes = timeToMinutes(m.time);
       if (startMinutes == null) return;
 
       let start = startMinutes;
-      let end = start + 60;
+      let end = start + 30;
 
       if (end <= dayStart || start >= dayEnd) return;
       start = Math.max(start, dayStart);
@@ -297,9 +478,47 @@ export default function DashboardMeetingsPanel() {
     }
 
     return fullTimeline;
-  }, [savedPlan, todayPlan, todayMeetings, timeToMinutes]);
+  }, [savedPlan, todayPlan, todayMeetings]);
 
-  const workMinutesToday = todayBlocks.reduce((sum, b) => {
+  // Apply any time overrides for this specific day (non-meeting/lunch only)
+  const todayBlocksWithOverrides: TodayBlock[] = useMemo(() => {
+    if (!todayBlocksBase.length) return [];
+    const overrides = todayOverrides ?? {};
+    return todayBlocksBase.map((b) => {
+      const ov = overrides[b.id];
+      if (!ov || b.kind === "meeting" || b.kind === "lunch") return b;
+      return {
+        ...b,
+        startMinutes: ov.startMinutes,
+        endMinutes: ov.endMinutes,
+      };
+    });
+  }, [todayBlocksBase, todayOverrides]);
+
+  // Apply saved drag order
+  const orderedTodayBlocks: TodayBlock[] = useMemo(() => {
+    if (!todayBlocksWithOverrides.length) return [];
+    if (!todayOrder) return todayBlocksWithOverrides;
+
+    const byId = new Map(todayBlocksWithOverrides.map((b) => [b.id, b]));
+    const ordered: TodayBlock[] = [];
+
+    // First, use saved order where IDs still exist
+    for (const id of todayOrder) {
+      const b = byId.get(id);
+      if (b) {
+        ordered.push(b);
+        byId.delete(id);
+      }
+    }
+
+    // Then append any new blocks not in saved order
+    byId.forEach((b) => ordered.push(b));
+
+    return ordered;
+  }, [todayBlocksWithOverrides, todayOrder]);
+
+  const workMinutesToday = orderedTodayBlocks.reduce((sum, b) => {
     if (b.kind !== "work") return sum;
     return sum + (b.endMinutes - b.startMinutes);
   }, 0);
@@ -310,8 +529,88 @@ export default function DashboardMeetingsPanel() {
   }
 
   function handleRescheduleMeeting(m: Meeting) {
-    // Stub for future reschedule implementation
     console.log("Reschedule meeting", m.id);
+  }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    })
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const current = orderedTodayBlocks;
+    const oldIndex = current.findIndex((b) => b.id === active.id);
+    const newIndex = current.findIndex((b) => b.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const moved = arrayMove(current, oldIndex, newIndex);
+    const newOrder = moved.map((b) => b.id);
+    setTodayOrder(newOrder);
+    saveDailyOrder(anchorDateIso, newOrder);
+  }
+
+  function openEditDialog(block: TodayBlock) {
+    // meetings / lunch are already guarded in row, but double-check
+    if (block.kind === "meeting" || block.kind === "lunch") return;
+    setEditBlock(block);
+    setEditStart(formatMinutes(block.startMinutes));
+    setEditEnd(formatMinutes(block.endMinutes));
+    setEditError(null);
+  }
+
+  function closeEditDialog() {
+    setEditBlock(null);
+    setEditError(null);
+  }
+
+  function handleEditSave() {
+    if (!editBlock || !todayPlan || todayPlan.status !== "work") return;
+
+    const { windowStart, windowEnd } = todayPlan;
+
+    const start = timeToMinutes(editStart);
+    const end = timeToMinutes(editEnd);
+    if (start == null || end == null) {
+      setEditError("Please enter valid times (HH:MM).");
+      return;
+    }
+
+    let newStart = Math.max(windowStart, Math.min(start, windowEnd));
+    let newEnd = Math.max(windowStart, Math.min(end, windowEnd));
+
+    if (newEnd <= newStart) {
+      setEditError("End time must be after start time.");
+      return;
+    }
+
+    // Prevent overlap with locked blocks (meetings & lunch)
+    const locked = orderedTodayBlocks.filter(
+      (b) =>
+        (b.kind === "meeting" || b.kind === "lunch") && b.id !== editBlock.id
+    );
+    const overlapsLocked = locked.some((b) => {
+      return newStart < b.endMinutes && newEnd > b.startMinutes;
+    });
+    if (overlapsLocked) {
+      setEditError("This range overlaps a meeting or lunch block.");
+      return;
+    }
+
+    const override: DailyTimeOverride = {
+      startMinutes: newStart,
+      endMinutes: newEnd,
+    };
+
+    setTodayOverrides((prev) => ({
+      ...(prev ?? {}),
+      [editBlock.id]: override,
+    }));
+    saveDailyTimeOverride(anchorDateIso, editBlock.id, override);
+    closeEditDialog();
   }
 
   return (
@@ -362,7 +661,7 @@ export default function DashboardMeetingsPanel() {
               {savedPlan &&
                 todayPlan &&
                 todayPlan.status === "work" &&
-                todayBlocks.length > 0 && (
+                orderedTodayBlocks.length > 0 && (
                   <div className="rounded-xl border border-slate-800 bg-slate-950/85 p-2">
                     {/* Header row: matches StepFinalize day cards */}
                     <div className="mb-1 flex items-center justify-between">
@@ -382,47 +681,31 @@ export default function DashboardMeetingsPanel() {
 
                     {/* Full-day block list (timeline) */}
                     <ul className="space-y-1.5 text-[11px]">
-                      {todayBlocks.map((b) => {
-                        const tone =
-                          b.kind === "work"
-                            ? "bg-sky-500/10 text-sky-100"
-                            : b.kind === "meeting"
-                            ? "bg-violet-500/15 text-violet-100 border border-violet-400/60"
-                            : b.kind === "lunch"
-                            ? "bg-amber-500/10 text-amber-100 border border-amber-400/60"
-                            : "bg-emerald-500/5 text-emerald-100 border border-emerald-400/40";
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={handleDragEnd}
+                      >
+                        <SortableContext
+                          items={orderedTodayBlocks.map((b) => b.id)}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          {orderedTodayBlocks.map((b) => {
+                            const timeLabel = `${formatMinutes(
+                              b.startMinutes
+                            )} – ${formatMinutes(b.endMinutes)}`;
 
-                        const labelText =
-                          b.kind === "lunch"
-                            ? "Lunch break"
-                            : b.kind === "free"
-                            ? "Free time (personal)"
-                            : b.label;
-
-                        return (
-                          <li
-                            key={b.id}
-                            className={[
-                              "flex items-center justify-between rounded-lg px-2 py-1",
-                              tone,
-                            ].join(" ")}
-                          >
-                            <div>
-                              <div className="text-[15px]">{labelText}</div>
-                              <div className="text-[13px] text-slate-300/50">
-                                {formatMinutes(b.startMinutes)} –{" "}
-                                {formatMinutes(b.endMinutes)}
-                              </div>
-                            </div>
-
-                            {b.kind === "meeting" && (
-                              <div className="ml-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
-                                <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
+                            return (
+                              <TodayBlockRow
+                                key={b.id}
+                                block={b}
+                                timeLabel={timeLabel}
+                                onEdit={openEditDialog}
+                              />
+                            );
+                          })}
+                        </SortableContext>
+                      </DndContext>
                     </ul>
                   </div>
                 )}
@@ -442,7 +725,7 @@ export default function DashboardMeetingsPanel() {
                 setShowCalendar((v) => !v);
               }
             }}
-            className="flex w-full items-center justify-between px-3 py-2 text-left cursor-pointer"
+            className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left"
           >
             <div>
               <h2 className="text-sm font-semibold text-slate-50">Calendar</h2>
@@ -630,6 +913,73 @@ export default function DashboardMeetingsPanel() {
         onRescheduleMeeting={handleRescheduleMeeting}
         refreshKey={refreshKey}
       />
+
+      {/* Time-edit dialog for DRD blocks */}
+      {editBlock && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900/95 p-4 text-xs text-slate-100 shadow-xl">
+            <h2 className="text-sm font-semibold text-slate-50">
+              Adjust block time
+            </h2>
+            <p className="mt-1 text-[11px] text-slate-400">
+              {editBlock.kind === "free"
+                ? "Update this free/personal slot for today."
+                : editBlock.kind === "work"
+                ? "Update this deep-work slot for today."
+                : editBlock.label}
+            </p>
+
+            <form
+              className="mt-3 space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleEditSave();
+              }}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <label className="flex flex-1 flex-col gap-1">
+                  <span className="text-[11px] text-slate-400">Start</span>
+                  <input
+                    type="time"
+                    value={editStart}
+                    onChange={(e) => setEditStart(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[13px] text-slate-100"
+                  />
+                </label>
+                <label className="flex flex-1 flex-col gap-1">
+                  <span className="text-[11px] text-slate-400">End</span>
+                  <input
+                    type="time"
+                    value={editEnd}
+                    onChange={(e) => setEditEnd(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[13px] text-slate-100"
+                  />
+                </label>
+              </div>
+
+              {editError && (
+                <p className="text-[11px] text-rose-300">{editError}</p>
+              )}
+
+              <div className="mt-1 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeEditDialog}
+                  className="rounded-full border border-slate-700 px-3 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-full bg-sky-500 px-4 py-1 text-[11px] font-semibold text-slate-950 hover:bg-sky-400"
+                >
+                  Update time
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }
