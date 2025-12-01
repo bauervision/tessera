@@ -1,6 +1,7 @@
+//app/planner/types.ts
+
 import { WeeklyMeeting } from "@/lib/weeklyPlanner";
 
-//app/planner/types.ts
 export type DayConfig = {
   id: number;
   label: string;
@@ -39,6 +40,7 @@ export type DayScheduleBlock = {
   endMinutes: number;
   cumulativeMinutesAfter?: number;
   totalMinutesPlanned?: number;
+  hasConflict?: boolean;
 };
 
 export type DaySchedule = {
@@ -46,6 +48,7 @@ export type DaySchedule = {
   label: string;
   blocks: DayScheduleBlock[];
   dayEndMinutes: number;
+  hasConflicts?: boolean;
 };
 
 type FinalizeTask = {

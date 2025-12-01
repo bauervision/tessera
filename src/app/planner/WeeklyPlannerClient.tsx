@@ -1,3 +1,4 @@
+//app/planner/WeeklyPlannerClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,8 +8,6 @@ import {
   loadSavedWeeklyPlan,
   saveWeeklyPlan,
   type SavedWeeklyPlan,
-  buildDummyProjects,
-  buildWeeklyTasks,
 } from "@/lib/weeklyPlanner";
 import StepConfigure from "./StepConfigure";
 import StepPrioritize from "./StepPrioritize";

@@ -25,7 +25,7 @@ export function Navbar() {
           type="button"
           onClick={handleLogoClick}
           className="flex items-center group"
-          title="← Dashboard"
+          title={pathname === "/" ? "← Logout" : "← Dashboard"}
         >
           <div className="flex h-26 w-26 rounded-4xl items-center justify-center transition group-hover:ring-sky-400/80 group-hover:bg-slate-900/60">
             <img

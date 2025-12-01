@@ -1,32 +1,33 @@
 // app/planner/StepFinalize.tsx
 "use client";
 
-import {
-  saveWeeklyPlan,
-  type SavedWeeklyPlan,
-  type WeeklyPlannerTask,
-} from "@/lib/weeklyPlanner";
-import type {
-  DayConfig,
-  DaySchedule,
-  DayScheduleBlock,
-  PlannerPriorityRow,
-  StepFinalizeProps,
-} from "./types";
+import type { DaySchedule, DayScheduleBlock, StepFinalizeProps } from "./types";
 import { useMemo, useState } from "react";
 import { CalendarDays } from "lucide-react";
 
 const formatMinutes = (mins: number) => {
   // Round to the nearest whole minute to avoid float artifacts
-  const total = Math.round(mins); // e.g. 629.7599 → 630
+  const total = Math.round(mins);
 
-  const h = Math.floor(total / 60);
+  const h24 = Math.floor(total / 60);
   const m = total % 60;
 
-  const hh = h.toString().padStart(2, "0");
-  const mm = m.toString().padStart(2, "0");
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
 
-  return `${hh}:${mm}`;
+  const mm = m.toString().padStart(2, "0");
+  const ampm = h24 < 12 ? "AM" : "PM";
+
+  return `${h12}:${mm} ${ampm}`;
+};
+
+const timeStringToMinutes = (time?: string | null): number | null => {
+  if (!time) return null;
+  const [hStr, mStr] = time.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
 };
 
 // Basic schedule model for this step
@@ -90,23 +91,28 @@ export default function StepFinalize({
   const meetingsByDate = useMemo(() => {
     const map = new Map<
       string,
-      { id: string; title: string; minutes: number; projectId?: string }[]
+      {
+        id: string;
+        title: string;
+        minutes: number;
+        projectId?: string;
+        time?: string | null;
+      }[]
     >();
 
-    const cancelled = new Set(cancelledMeetingIds); // ← add this
+    const cancelled = new Set(cancelledMeetingIds);
 
     tasks.forEach((t) => {
       if (!t.meetings) return;
 
       t.meetings.forEach((m) => {
-        if (!m.id || cancelled.has(m.id)) return; // ← skip cancelled meetings
+        if (!m.id || cancelled.has(m.id)) return;
 
         const key = m.dateIso;
         if (!key) return;
 
         const list = map.get(key) ?? [];
 
-        // ✅ De-dupe by meeting id for this date
         if (list.some((existing) => existing.id === m.id)) {
           return;
         }
@@ -116,6 +122,7 @@ export default function StepFinalize({
           title: m.title,
           minutes: m.hours * 60,
           projectId: t.projectId,
+          time: m.time, // 👈 NEW: pass through start time if available
         });
 
         map.set(key, list);
@@ -225,10 +232,28 @@ export default function StepFinalize({
       dayMeetings.forEach((m, idx) => {
         const duration = m.minutes;
         if (duration <= 0) return;
-        if (meetingCursor >= dayEnd) return;
 
-        const start = meetingCursor;
-        const end = Math.min(dayEnd, start + duration);
+        // Prefer the real meeting start time, if we have one
+        const explicitStart = timeStringToMinutes(m.time);
+        let start: number;
+
+        if (explicitStart != null) {
+          start = explicitStart;
+        } else {
+          // Fallback for dummy meetings with no time: stack after lunch
+          if (meetingCursor >= dayEnd) return;
+          start = meetingCursor;
+          meetingCursor = start + duration;
+        }
+
+        let end = start + duration;
+
+        // Clamp to the configured workday window
+        if (end <= dayStart || start >= dayEnd) {
+          return;
+        }
+        if (start < dayStart) start = dayStart;
+        if (end > dayEnd) end = dayEnd;
 
         reserved.push({
           id: `${day.id}-mtg-${m.id ?? idx}`,
@@ -239,12 +264,35 @@ export default function StepFinalize({
           projectId: m.projectId,
           meetingId: m.id,
         });
-
-        meetingCursor = end;
       });
 
       // Sort reserved by time
       reserved.sort((a, b) => a.start - b.start);
+
+      // ---- Detect overlapping meetings on this day ----
+      const meetingBlocks = reserved
+        .filter((r) => r.kind === "meeting")
+        .sort((a, b) => a.start - b.start);
+
+      const conflictIds = new Set<string>();
+
+      for (let i = 0; i < meetingBlocks.length; i++) {
+        const a = meetingBlocks[i];
+        for (let j = i + 1; j < meetingBlocks.length; j++) {
+          const b = meetingBlocks[j];
+
+          // meetings are sorted; if b starts after a ends, no more overlaps for a
+          if (b.start >= a.end) break;
+
+          // overlap if time ranges intersect
+          if (a.start < b.end && b.start < a.end) {
+            conflictIds.add(a.id);
+            conflictIds.add(b.id);
+          }
+        }
+      }
+
+      const hasConflicts = conflictIds.size > 0;
 
       // Build free segments as gaps between reserved blocks
       const segments: { start: number; end: number }[] = [];
@@ -273,6 +321,7 @@ export default function StepFinalize({
           meetingId: r.meetingId,
           startMinutes: r.start,
           endMinutes: r.end,
+          hasConflict: r.kind === "meeting" && conflictIds.has(r.id),
         });
       });
 
@@ -362,6 +411,7 @@ export default function StepFinalize({
         label: day.label,
         blocks,
         dayEndMinutes: dayEnd,
+        hasConflicts,
       };
     });
   }, [activeDays, effective, meetingsByDate, weekStartIso]);
@@ -480,9 +530,16 @@ export default function StepFinalize({
                   className="rounded-xl border border-slate-800 bg-slate-950/80 p-2"
                 >
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="text-[16px] font-semibold text-slate-100">
-                      {day.label}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[16px] font-semibold text-slate-100">
+                        {day.label}
+                      </span>
+                      {day.hasConflicts && (
+                        <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-200 border border-rose-500/60">
+                          Meeting conflict
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[11px] text-slate-400">
                       {(workMinutes / 60).toFixed(1)}h work
                     </span>
@@ -515,6 +572,8 @@ export default function StepFinalize({
                         ? "bg-rose-500/15 text-rose-100 border border-rose-400/60"
                         : b.kind === "work"
                         ? "bg-sky-500/10 text-sky-100"
+                        : b.kind === "meeting" && b.hasConflict
+                        ? "bg-rose-500/20 text-rose-50 border border-rose-400/80"
                         : b.kind === "meeting"
                         ? "bg-violet-500/15 text-violet-100 border border-violet-400/60"
                         : "bg-amber-500/10 text-amber-100"; // lunch
@@ -602,8 +661,15 @@ export default function StepFinalize({
                             )}
 
                           {b.kind === "meeting" && (
-                            <div className="ml-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
-                              <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
+                            <div className="ml-3 flex flex-col items-end gap-1">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
+                                <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
+                              </div>
+                              {b.hasConflict && (
+                                <span className="rounded-full bg-rose-500 px-2 py-px text-[10px] font-semibold text-slate-950">
+                                  Conflict
+                                </span>
+                              )}
                             </div>
                           )}
                         </li>

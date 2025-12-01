@@ -297,7 +297,6 @@ export function upsertBriefForProject(
 }
 
 import type { Meeting } from "./types";
-import { DummyScenario, WeeklyPlannerTask } from "./weeklyPlanner";
 
 const MEETINGS_KEY = "tessera.meetings.v1";
 
@@ -348,9 +347,27 @@ export function getUpcomingMeetings(limit = 10): Meeting[] {
     }
 
     // recurring: find first occurrence >= today
-    let stepDays = rec === "weekly" ? 7 : rec === "biweekly" ? 14 : 30; // monthly ≈ 30 days
+    let stepDays: number;
+    switch (rec) {
+      case "daily":
+        stepDays = 1;
+        break;
+      case "weekly":
+        stepDays = 7;
+        break;
+      case "biweekly":
+        stepDays = 14;
+        break;
+      case "monthly":
+        stepDays = 30; // simple monthly approximation
+        break;
+      default:
+        stepDays = 7;
+        break;
+    }
 
     let current = new Date(start.getTime());
+
     // advance to today or later
     while (current < today) {
       current = new Date(current.getTime() + stepDays * DAY_MS);
@@ -358,11 +375,13 @@ export function getUpcomingMeetings(limit = 10): Meeting[] {
 
     // add occurrences until horizon
     while (current <= horizon) {
-      instances.push({
-        ...m,
-        // override dateIso so each instance is dated correctly
-        dateIso: current.toISOString().slice(0, 10),
-      });
+      if (rec !== "daily" || isWeekday(current)) {
+        instances.push({
+          ...m,
+          // override dateIso so each instance is dated correctly
+          dateIso: current.toISOString().slice(0, 10),
+        });
+      }
 
       current = new Date(current.getTime() + stepDays * DAY_MS);
     }
@@ -427,13 +446,15 @@ export function getMeetingsForDate(dateIso: string): Meeting[] {
         return m.dateIso === dateIso;
       }
 
-      // only repeat on or after the start date
       const diffDays = Math.floor(
         (target.getTime() - start.getTime()) / DAY_MS
       );
       if (diffDays < 0) return false;
 
       switch (rec) {
+        case "daily":
+          // every weekday on/after start
+          return isWeekday(target);
         case "weekly":
           return diffDays % 7 === 0;
         case "biweekly":
@@ -458,6 +479,11 @@ function dateFromIso(ymd: string): Date | null {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+function isWeekday(date: Date): boolean {
+  const day = date.getDay(); // 0 = Sun, 6 = Sat
+  return day !== 0 && day !== 6;
+}
 
 function normalizedRecurrence(r?: MeetingRecurrence): MeetingRecurrence {
   return r ?? "none";

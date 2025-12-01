@@ -217,18 +217,46 @@ export function QuickMeetingsWidget() {
               <label className="block text-[10px] text-slate-400">
                 Repeats
               </label>
-              <select
-                className="w-full rounded-md border border-white/10 bg-slate-950/80 px-2 py-1 text-[11px] text-slate-100 outline-none focus:border-sky-400"
-                value={recurrence}
-                onChange={(e) =>
-                  setRecurrence(e.target.value as MeetingRecurrence)
-                }
-              >
-                <option value="none">Does not repeat</option>
-                <option value="weekly">Every week</option>
-                <option value="biweekly">Every 2 weeks</option>
-                <option value="monthly">Every month</option>
-              </select>
+
+              <div className="space-y-1 text-[10px] text-slate-300">
+                <label className="inline-flex items-center gap-2 mr-2">
+                  <input
+                    type="checkbox"
+                    className="h-3 w-3 rounded border-slate-500 bg-slate-900 text-emerald-400"
+                    checked={recurrence === "daily"}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setRecurrence("daily");
+                      } else if (recurrence === "daily") {
+                        setRecurrence("none");
+                      }
+                    }}
+                  />
+                  <span>Daily SU</span>
+                </label>
+
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-3 w-3 rounded border-slate-500 bg-slate-900 text-emerald-400"
+                    checked={recurrence === "weekly"}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setRecurrence("weekly");
+                      } else if (recurrence === "weekly") {
+                        setRecurrence("none");
+                      }
+                    }}
+                  />
+                  <span>Weekly</span>
+                </label>
+
+                {recurrence === "none" && (
+                  <p className="text-[10px] text-slate-500">
+                    Leave unchecked for a one-off meeting.
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="space-y-1">

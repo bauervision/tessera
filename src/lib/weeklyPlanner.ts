@@ -21,6 +21,7 @@ export type WeeklyMeeting = {
   id: string;
   title: string;
   dateIso: string; // YYYY-MM-DD
+  time?: string | null; // "HH:MM" 24h, from Meeting.time
   hours: number;
 };
 
@@ -227,7 +228,8 @@ export function buildWeeklyTasks(
         id: makeId(`mtg_${p.id}_${i}`),
         title: `Sync ${i + 1}`,
         dateIso,
-        hours,
+        time: null,
+        hours: 1,
       };
 
       meetings.push(meet);
@@ -406,7 +408,8 @@ export function buildRealWeeklyTasks(
         id: m.id,
         title: m.title,
         dateIso,
-        hours: 1, // v1: assume 1h per meeting (matches DRD behavior)
+        time: m.time ?? null,
+        hours: 0.5, // v1: assume 1h per meeting (matches DRD behavior)
       });
       meetingsByJob.set(m.jobId, list);
     });

@@ -45,7 +45,12 @@ export type ProjectBrief = {
   updatedAt: string; // ISO
 };
 
-export type MeetingRecurrence = "none" | "weekly" | "biweekly" | "monthly";
+export type MeetingRecurrence =
+  | "none"
+  | "daily"
+  | "weekly"
+  | "biweekly"
+  | "monthly";
 
 export type Meeting = {
   id: string;

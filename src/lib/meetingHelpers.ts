@@ -1,3 +1,4 @@
+//lib/meetingHelpers.ts
 import { TimeParts } from "./types";
 
 export function parseTimeToParts(value: string): TimeParts {
@@ -53,4 +54,18 @@ export function partsToTime(parts: TimeParts): string {
   }
   const hh = String(h).padStart(2, "0");
   return `${hh}:${parts.minute}`;
+}
+
+export function formatTime12hLabel(time?: string | null): string {
+  if (!time) return "";
+  const [hStr, mStr] = time.split(":");
+  const h24 = Number(hStr) || 0;
+  const m = Number(mStr) || 0;
+
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
+
+  const mm = m.toString().padStart(2, "0");
+  return `${h12}:${mm} ${ampm}`;
 }
