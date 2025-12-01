@@ -31,7 +31,7 @@ export type Project = {
   code: string;
   status: "active" | "dormant" | "archived";
   lastActivityAt: string | null;
-  notes?: string;
+  notes?: string[];
   archived?: boolean;
 };
 

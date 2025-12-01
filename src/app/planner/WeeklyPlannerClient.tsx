@@ -1,4 +1,4 @@
-//app/planner/WeeklyPlannerClient.tsx
+// app/planner/WeeklyPlannerClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -8,6 +8,7 @@ import {
   loadSavedWeeklyPlan,
   saveWeeklyPlan,
   type SavedWeeklyPlan,
+  type WeeklyPlannerTask,
 } from "@/lib/weeklyPlanner";
 import StepConfigure from "./StepConfigure";
 import StepPrioritize from "./StepPrioritize";
@@ -16,7 +17,6 @@ import { DayConfig, PlannerPriorityRow, PlannerStep } from "./types";
 import {
   getCurrentWeekMondayIso,
   makeDefaultDays,
-  scenarioLabels,
   stepLabel,
   stepOrder,
 } from "./helpers";
@@ -38,34 +38,42 @@ export default function WeeklyPlannerClient() {
   const [hasSavedPlan, setHasSavedPlan] = useState(false);
   const [viewMode, setViewMode] = useState<"wizard" | "schedule">("wizard");
 
-  const { baseTasks, totalWeeklyHoursNeeded } = useMemo(() => {
-    const baseTasks = buildRealWeeklyTasks(weekStartIso, scenario);
-    const totalWeeklyHoursNeeded = baseTasks.reduce(
-      (sum: any, t: { weeklyHoursNeeded: any }) => sum + t.weeklyHoursNeeded,
-      0
+  // NEW: real tasks + total hours in state, hydrated in useEffect (client-only)
+  const [baseTasks, setBaseTasks] = useState<WeeklyPlannerTask[]>([]);
+  const [totalWeeklyHoursNeeded, setTotalWeeklyHoursNeeded] =
+    useState<number>(0);
+
+  useEffect(() => {
+    // avoid running during static export / SSR
+    if (typeof window === "undefined") return;
+
+    const real = buildRealWeeklyTasks(
+      weekStartIso,
+      scenario
+    ) as WeeklyPlannerTask[];
+
+    setBaseTasks(real);
+    setTotalWeeklyHoursNeeded(
+      real.reduce(
+        (sum, t) => sum + Number((t as any).weeklyHoursNeeded ?? 0),
+        0
+      )
     );
-    return { baseTasks, totalWeeklyHoursNeeded };
-  }, [scenario, weekStartIso]);
+  }, [weekStartIso, scenario]);
 
   // Apply manual order if present
   const tasks = useMemo(() => {
     if (!manualOrder) return baseTasks;
-    const byId = new Map(baseTasks.map((t) => [t.projectId, t]));
+    const byId = new Map(baseTasks.map((t: any) => [t.projectId, t]));
     const ordered = manualOrder
       .map((id) => byId.get(id))
       .filter(Boolean) as typeof baseTasks;
     // include any new tasks not in manualOrder
     const remaining = baseTasks.filter(
-      (t) => !manualOrder.includes(t.projectId)
+      (t: any) => !manualOrder.includes(t.projectId)
     );
     return [...ordered, ...remaining];
   }, [baseTasks, manualOrder]);
-
-  // Reset manual order whenever scenario or week changes
-  // (so dragging doesn't carry across very different sets)
-  useEffect(() => {
-    setManualOrder(null);
-  }, [scenario, weekStartIso]);
 
   // Reset manual order whenever scenario or week changes
   useEffect(() => {
@@ -74,6 +82,7 @@ export default function WeeklyPlannerClient() {
 
   // hydrate from saved plan (for this week)
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const saved = loadSavedWeeklyPlan(weekStartIso);
     if (!saved) return;
 
@@ -100,7 +109,6 @@ export default function WeeklyPlannerClient() {
   );
 
   const capacityDelta = totalAvailableHours - totalWeeklyHoursNeeded;
-  const overCapacity = capacityDelta < 0;
 
   const weekStartDate = new Date(weekStartIso);
   const weekEndDate = new Date(weekStartIso);
@@ -113,13 +121,13 @@ export default function WeeklyPlannerClient() {
 
   const goNext = () => {
     if (currentStepIndex < stepOrder.length - 1) {
-      setStep(stepOrder[currentStepIndex + 1]);
+      setStep(stepOrder[currentStepIndex + 1] as PlannerStep);
     }
   };
 
   const goBack = () => {
     if (currentStepIndex > 0) {
-      setStep(stepOrder[currentStepIndex - 1]);
+      setStep(stepOrder[currentStepIndex - 1] as PlannerStep);
     }
   };
 
@@ -162,7 +170,7 @@ export default function WeeklyPlannerClient() {
     .reduce((sum, p) => sum + p.weeklyHours, 0);
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6">
       {/* Header */}
       <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -181,35 +189,26 @@ export default function WeeklyPlannerClient() {
           </p>
         </div>
 
+        {/* Top-right actions: Back to wizard + Save in schedule view */}
         <div className="flex flex-col items-start gap-2 sm:items-end">
-          <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-slate-400">
-              Scenario
-            </span>
-            <div className="inline-flex overflow-hidden rounded-full border border-slate-700 bg-slate-900/70">
-              {scenarioLabels.map((s) => {
-                const active = s.value === scenario;
-                return (
-                  <button
-                    key={s.value}
-                    type="button"
-                    onClick={() => setScenario(s.value)}
-                    className={[
-                      "px-3 py-1.5 text-xs font-medium transition",
-                      active
-                        ? "bg-sky-500 text-slate-900"
-                        : "text-slate-300 hover:bg-slate-800",
-                    ].join(" ")}
-                  >
-                    {s.label}
-                  </button>
-                );
-              })}
+          {viewMode === "schedule" && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setViewMode("wizard")}
+                className="rounded-full border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800"
+              >
+                Back to wizard
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePlan}
+                className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm hover:bg-emerald-400"
+              >
+                Save weekly schedule
+              </button>
             </div>
-          </div>
-          <p className="text-[11px] text-slate-500">
-            Using dummy data. We&apos;ll wire in real projects later.
-          </p>
+          )}
         </div>
       </header>
 
@@ -226,7 +225,7 @@ export default function WeeklyPlannerClient() {
                     <button
                       key={s}
                       type="button"
-                      onClick={() => setStep(s)}
+                      onClick={() => setStep(s as PlannerStep)}
                       className={[
                         "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
                         isActive
@@ -248,7 +247,7 @@ export default function WeeklyPlannerClient() {
                       >
                         {index + 1}
                       </span>
-                      <span>{stepLabel(s)}</span>
+                      <span>{stepLabel(s as PlannerStep)}</span>
                     </button>
                   );
                 })}
@@ -282,7 +281,6 @@ export default function WeeklyPlannerClient() {
               defaultStartMinutes={defaultStartMinutes}
               defaultEndMinutes={defaultEndMinutes}
               onChangeDefaults={handleDefaultsChange}
-              // weekStartIso={weekStartIso}
             />
           )}
 

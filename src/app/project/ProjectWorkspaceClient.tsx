@@ -37,6 +37,7 @@ export default function ProjectWorkspaceClient() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [notesDraft, setNotesDraft] = useState<string[]>([]);
 
   const [whatIDid, setWhatIDid] = useState("");
 
@@ -81,7 +82,9 @@ export default function ProjectWorkspaceClient() {
 
   const [sessionHours, setSessionHours] = useState("");
 
-  const [mainTab, setMainTab] = useState<"focus" | "log" | "brief">("focus");
+  const [mainTab, setMainTab] = useState<"focus" | "log" | "brief" | "notes">(
+    "focus"
+  );
 
   const [detailTab, setDetailTab] = useState<"milestones" | "brief">(
     "milestones"
@@ -130,10 +133,14 @@ export default function ProjectWorkspaceClient() {
     setBrief(getBriefForProject(project.id));
   }, [project?.id]);
 
-  const job = useMemo(
-    () => jobs.find((j) => j.id === project?.jobId),
-    [jobs, project?.jobId]
-  );
+  useEffect(() => {
+    if (!project) {
+      setNotesDraft([]);
+      return;
+    }
+
+    setNotesDraft(Array.isArray(project.notes) ? project.notes : []);
+  }, [project?.id, project?.notes]);
 
   const lastSession = sessions[0];
 
@@ -161,6 +168,21 @@ export default function ProjectWorkspaceClient() {
       </div>
     );
   }
+
+  const handleSaveNotes = () => {
+    if (!project) return;
+
+    const cleaned = notesDraft.map((n) => n.trim()).filter(Boolean);
+
+    // Persist notes on the project
+    updateCustomProject(project.id, { notes: cleaned });
+
+    const { projects: allProjects } = loadJobsAndProjects();
+    const updated = allProjects.find((p) => p.id === project.id) || null;
+    setProject(updated);
+
+    showToast("Project notes saved", "success");
+  };
 
   const handleLogSession = (e: React.FormEvent) => {
     e.preventDefault();
@@ -295,6 +317,18 @@ export default function ProjectWorkspaceClient() {
                   }`}
                 >
                   Project brief
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMainTab("notes")}
+                  className={`rounded-full px-3 py-1 ${
+                    mainTab === "notes"
+                      ? "bg-sky-500 text-slate-950"
+                      : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  }`}
+                >
+                  Project notes
                 </button>
               </div>
 
@@ -541,7 +575,7 @@ export default function ProjectWorkspaceClient() {
                     </div>
                   </form>
                 </div>
-              ) : (
+              ) : mainTab === "brief" ? (
                 /* PROJECT BRIEF EDITOR */
                 <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -679,6 +713,82 @@ export default function ProjectWorkspaceClient() {
                           Save brief
                         </button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+                  <h2 className="text-sm font-semibold text-slate-100">
+                    Project notes
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Use this space to jot down meeting takeaways, asks, and
+                    scratch notes for{" "}
+                    <span className="font-medium text-sky-200">
+                      {project.name}
+                    </span>
+                    . Each line is saved as a separate note.
+                  </p>
+
+                  <div className="mt-3 space-y-2 text-xs">
+                    {notesDraft.length === 0 && (
+                      <p className="text-[11px] text-slate-500">
+                        No notes yet. Start by adding your first note below.
+                      </p>
+                    )}
+
+                    <ul className="space-y-2">
+                      {notesDraft.map((note, index) => (
+                        <li
+                          key={index}
+                          className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-1.5"
+                        >
+                          <span className="mt-[5px] text-[11px] text-slate-500">
+                            •
+                          </span>
+                          <textarea
+                            rows={2}
+                            className="w-full resize-none rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[11px] text-slate-100 outline-none focus:border-sky-400/70 focus:bg-slate-900"
+                            value={note}
+                            onChange={(e) => {
+                              const next = [...notesDraft];
+                              next[index] = e.target.value;
+                              setNotesDraft(next);
+                            }}
+                            placeholder="Type your note..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = notesDraft.filter(
+                                (_, i) => i !== index
+                              );
+                              setNotesDraft(next);
+                            }}
+                            className="mt-0.5 rounded-full border border-slate-600 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNotesDraft((prev) => [...prev, ""])}
+                        className="rounded-full border border-sky-500/60 bg-sky-500/10 px-3 py-1 text-[11px] text-sky-100 hover:bg-sky-500/25"
+                      >
+                        + Add note
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSaveNotes}
+                        className="rounded-full bg-emerald-500 px-4 py-1 text-[11px] font-semibold text-slate-950 hover:bg-emerald-400"
+                      >
+                        Save notes
+                      </button>
                     </div>
                   </div>
                 </div>

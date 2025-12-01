@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import { isLoggedIn, logout } from "@/lib/auth";
 import DashboardMeetingsPanel from "@/components/DashboardMeetingPanel";
 import { priorityVisual } from "@/lib/ui";
+import { CalendarDays } from "lucide-react";
 
 export default function DashboardClient() {
   const router = useRouter();
@@ -133,11 +134,11 @@ export default function DashboardClient() {
             <div className="flex flex-col items-start gap-2 sm:items-end">
               <Link
                 href="/planner"
-                className="flex items-center justify-center rounded-full border border-sky-400/60 bg-sky-500/10 px-4 py-1.5 text-sm font-medium text-sky-100 shadow-sm transition hover:bg-sky-500/20 hover:border-sky-300/80"
+                aria-label="Open Weekly Planner"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-sky-400/60 bg-sky-500/10 text-sky-100 shadow-sm transition hover:bg-sky-500/20 hover:border-sky-300/80"
               >
-                Weekly planner
+                <CalendarDays className="h-4 w-4" />
               </Link>
-
               {/* Archived projects (moved up from footer) */}
               <div className="text-xs text-slate-400">
                 {projects.some((p) => isProjectArchived(p.id)) && (
@@ -267,23 +268,23 @@ export default function DashboardClient() {
 
                             <Link
                               href={`/project?id=${p.id}`}
-                              className={`group block rounded-2xl bg-linear-to-r ${visuals.borderGradient} p-px`}
+                              className={`group block rounded-2xl overflow-hidden bg-linear-to-r ${visuals.borderGradient} p-px`}
                             >
                               <div
                                 className={`relative flex items-stretch justify-between rounded-2xl bg-linear-to-r ${visuals.bgGradient} transition-transform duration-200 ease-out group-hover:-translate-y-px`}
                               >
                                 <div
-                                  className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${visuals.overlay}`}
+                                  className={`pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${visuals.overlay}`}
                                 />
 
                                 <div className="relative z-10 flex flex-1 items-center justify-between gap-3 px-3 py-2">
                                   <div className="flex gap-4">
-                                    <span className="font-medium text-slate-50">
+                                    <span className="flex flex-col font-medium text-slate-50">
                                       {p.name}
+                                      <LastLoggedBadge projectId={p.id} />
                                     </span>
 
                                     <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                                      <LastLoggedBadge projectId={p.id} />
                                       {totalHours > 0 && (
                                         <span className="text-slate-300">
                                           •{" "}
