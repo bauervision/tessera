@@ -40,7 +40,11 @@ import {
   timeToMinutes,
   TodayBlock,
 } from "@/lib/dailyRunDownHelpers";
-import { TodayBlockRow, TodayEndDropZone } from "./ui/TodayBlockRow";
+import {
+  TodayBlockRow,
+  TodayEmptyDropSlot,
+  TodayEndDropZone,
+} from "./ui/TodayBlockRow";
 
 const END_OF_DAY_ID = "__drd-end__";
 
@@ -336,17 +340,24 @@ export default function DailyRundown({ show, onToggle }: DailyRundownProps) {
     return blocks;
   }, [savedPlan, todayPlan, today, projectOrder, todayMeetings]);
 
-  // Apply any time overrides for today (non-meeting/lunch only)
+  // Apply any time overrides for today (now includes meetings as well)
   const todayBlocksWithOverrides: TodayBlock[] = useMemo(() => {
     if (!todayBlocksBase.length) return [];
     const overrides = todayOverrides ?? {};
+
     return todayBlocksBase.map((b) => {
       const ov = overrides[b.id];
-      if (!ov || b.kind === "meeting" || b.kind === "lunch") return b;
+      if (!ov) return b;
+
+      const startMinutes = ov.startMinutes;
+      const endMinutes = ov.endMinutes;
+
       return {
         ...b,
-        startMinutes: ov.startMinutes,
-        endMinutes: ov.endMinutes,
+        startMinutes,
+        endMinutes,
+        // keep hours in sync with actual duration
+        hours: (endMinutes - startMinutes) / 60,
       };
     });
   }, [todayBlocksBase, todayOverrides]);
@@ -392,15 +403,87 @@ export default function DailyRundown({ show, onToggle }: DailyRundownProps) {
     const current = orderedTodayBlocks;
     if (!current.length) return;
 
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    // ────────────────────────────────────────────────
+    // 1) Dropped onto a free time slot ("empty-XXX")
+    //    → move block to start at that slot's time.
+    // ────────────────────────────────────────────────
+    if (overId.startsWith("empty-")) {
+      if (!todayPlan || todayPlan.status !== "work") return;
+
+      const raw = overId.replace("empty-", "");
+      const slotStart = Number.parseInt(raw, 10);
+      if (Number.isNaN(slotStart)) return;
+
+      const block = current.find((b) => b.id === activeId);
+      if (!block) return;
+
+      const { windowStart, windowEnd } = todayPlan;
+
+      const originalDuration =
+        block.endMinutes > block.startMinutes
+          ? block.endMinutes - block.startMinutes
+          : 30;
+
+      // Clamp start & end into the work window
+      let start = Math.max(windowStart, Math.min(slotStart, windowEnd));
+      let end = Math.min(windowEnd, start + originalDuration);
+
+      // Ensure at least 30 minutes
+      if (end - start < 30) {
+        end = Math.min(windowEnd, start + 30);
+      }
+
+      const overridesForDay: Record<string, DailyTimeOverride> = {
+        ...(todayOverrides ?? {}),
+        [block.id]: {
+          startMinutes: start,
+          endMinutes: end,
+        },
+      };
+
+      // Apply the new times locally so we can sort by time
+      const updatedBlocks = current
+        .map((b) =>
+          b.id === block.id
+            ? {
+                ...b,
+                startMinutes: start,
+                endMinutes: end,
+                hours: (end - start) / 60,
+              }
+            : b
+        )
+        .slice()
+        .sort((a, b) => a.startMinutes - b.startMinutes);
+
+      const newOrder = updatedBlocks.map((b) => b.id);
+
+      setTodayOverrides(overridesForDay);
+      saveDailyOverridesForDate(today, overridesForDay);
+
+      setTodayOrder(newOrder);
+      saveDailyOrder(today, newOrder);
+
+      return;
+    }
+
+    // ────────────────────────────────────────────────
+    // 2) Existing behavior: reorder among blocks
+    //    (Feed into capacity + rebalance)
+    // ────────────────────────────────────────────────
+
     const ids = [...current.map((b) => b.id), END_OF_DAY_ID];
 
-    const oldIndex = ids.indexOf(String(active.id));
-    let newIndex = ids.indexOf(String(over.id));
+    const oldIndex = ids.indexOf(activeId);
+    let newIndex = ids.indexOf(overId);
 
     if (oldIndex === -1 || newIndex === -1) return;
 
     // If dropped on the end-of-day target, move to last real block
-    if (over.id === END_OF_DAY_ID) {
+    if (overId === END_OF_DAY_ID) {
       newIndex = ids.length - 2; // index of last real item in ids
     }
 
@@ -626,17 +709,11 @@ export default function DailyRundown({ show, onToggle }: DailyRundownProps) {
 
                             if (row.type === "empty") {
                               return (
-                                <li
+                                <TodayEmptyDropSlot
                                   key={row.key}
-                                  className="flex items-center gap-2 rounded-md border border-dashed border-slate-800/80 bg-slate-950/60 px-2 py-1"
-                                >
-                                  <span className="w-24 text-[10px] font-mono text-slate-500">
-                                    {label}
-                                  </span>
-                                  <span className="text-[10px] text-slate-600">
-                                    Free 30 min
-                                  </span>
-                                </li>
+                                  id={row.key} // e.g. "empty-540"
+                                  timeLabel={label}
+                                />
                               );
                             }
 

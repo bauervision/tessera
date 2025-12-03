@@ -32,17 +32,20 @@ export function TimeSlotRowContent({
       ? "border-emerald-500/40 bg-emerald-500/5"
       : "border-sky-500/30 bg-sky-500/5";
 
-  const displayHours =
-    typeof hours === "number" ? hours : (durationMinutes ?? 30) / 60;
-
   const slotMinutes = 30;
-  const currentSlots = Math.max(
-    1,
-    Math.round((durationMinutes ?? slotMinutes) / slotMinutes)
-  );
+
+  const effectiveDuration = durationMinutes ?? slotMinutes;
+  const currentSlots = Math.max(1, Math.round(effectiveDuration / slotMinutes));
+
+  // base visual height per 30-min slot (tweak to taste)
+  const baseSlotHeight = 28; // px
+  const minHeight = currentSlots * baseSlotHeight;
+
+  const displayHours =
+    typeof hours === "number" ? hours : effectiveDuration / 60;
 
   return (
-    <div className={`${baseClasses} ${variantClasses}`}>
+    <div className={`${baseClasses} ${variantClasses}`} style={{ minHeight }}>
       {/* Time label */}
       <div className="w-28 text-[10px] font-mono text-slate-400">
         {timeLabel}

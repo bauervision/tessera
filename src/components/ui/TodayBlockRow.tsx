@@ -12,6 +12,7 @@ import {
   TimeSlotRowContent,
   type TimeSlotVariant,
 } from "@/components/ui/TimeSlotRowContent";
+import { useDndContext, useDroppable } from "@dnd-kit/core";
 
 type Props = {
   block: TodayBlock;
@@ -28,6 +29,7 @@ export function TodayBlockRow({ block, timeLabel, onEdit, onResize }: Props) {
     useSortable({
       id: block.id,
       disabled: isLocked,
+      data: { durationMinutes },
     });
 
   const style: React.CSSProperties = {
@@ -86,5 +88,53 @@ export function TodayEndDropZone({ id }: { id: string }) {
         isOver ? "border-sky-500/60 bg-sky-500/10" : ""
       }`}
     />
+  );
+}
+
+export function TodayEmptyDropSlot({
+  id,
+  timeLabel,
+}: {
+  id: string;
+  timeLabel: string;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  const { active } = useDndContext();
+
+  const slotMinutes = 30;
+
+  const activeDuration =
+    (active?.data?.current?.durationMinutes as number | undefined) ??
+    slotMinutes;
+
+  const previewSlots = Math.max(1, Math.round(activeDuration / slotMinutes));
+
+  const baseSlotHeight = 28; // keep in sync with TimeSlotRowContent
+  const minHeight = isOver ? previewSlots * baseSlotHeight : baseSlotHeight;
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ minHeight }}
+      className={`flex items-center gap-2 rounded-md px-2 py-1 transition-colors ${
+        isOver
+          ? // ⬇️ Stronger outline / ring while hovering
+            "border border-sky-400/80 bg-sky-500/10 shadow-[0_0_0_1px_rgba(56,189,248,0.7)]"
+          : "border border-dashed border-slate-800/80 bg-slate-950/60"
+      }`}
+    >
+      <span
+        className={`w-24 text-[10px] font-mono ${
+          isOver ? "text-sky-300" : "text-slate-500"
+        }`}
+      >
+        {timeLabel}
+      </span>
+      <span
+        className={`text-[10px] ${isOver ? "text-sky-200" : "text-slate-600"}`}
+      >
+        {isOver ? "Drop to schedule here" : "Free 30 min"}
+      </span>
+    </li>
   );
 }
