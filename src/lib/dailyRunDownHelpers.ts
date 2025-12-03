@@ -127,6 +127,14 @@ export type TodayBlock = {
   label: string;
   startMinutes: number;
   endMinutes: number;
+  hours?: number;
+};
+
+export type TodaySlot = {
+  id: string;
+  startMinutes: number;
+  endMinutes: number;
+  block: TodayBlock | null; // null = empty “free” slot
 };
 
 export function getProjectLabel(
@@ -141,6 +149,10 @@ export function getProjectLabel(
 
 const SLOT_MINUTES = 30;
 
+export function getBlockDurationMinutes(block: TodayBlock): number {
+  return block.endMinutes - block.startMinutes;
+}
+
 export function isLockedBlock(block: TodayBlock): boolean {
   return block.kind === "meeting" || block.kind === "lunch";
 }
@@ -152,11 +164,9 @@ export function enforceWindowCapacityByPosition(
 ): TodayBlock[] {
   if (dayEnd <= dayStart) return blocks;
 
-  // Pair each block with its index so we know where it sits in the list
   const lockedInfos = blocks
     .map((block, index) => ({ block, index }))
     .filter(({ block }) => isLockedBlock(block))
-    // sort locked by start time
     .sort((a, b) => a.block.startMinutes - b.block.startMinutes);
 
   type Window = {
@@ -207,7 +217,6 @@ export function enforceWindowCapacityByPosition(
     });
   }
 
-  // Collect IDs that should be "popped out" of their window
   const poppedIds = new Set<string>();
 
   for (const win of windows) {
@@ -225,14 +234,18 @@ export function enforceWindowCapacityByPosition(
 
     if (!flexIndices.length) continue;
 
-    const maxFlex = totalSlots;
+    let usedSlots = 0;
 
-    if (flexIndices.length > maxFlex) {
-      const overflowCount = flexIndices.length - maxFlex;
-      // Pop the *last* flexible blocks in this segment
-      const popIndices = flexIndices.slice(-overflowCount);
-      for (const idx of popIndices) {
-        poppedIds.add(blocks[idx].id);
+    for (const idx of flexIndices) {
+      const b = blocks[idx];
+      const duration = Math.max(SLOT_MINUTES, getBlockDurationMinutes(b));
+      const neededSlots = Math.ceil(duration / SLOT_MINUTES);
+
+      if (usedSlots + neededSlots <= totalSlots) {
+        usedSlots += neededSlots;
+      } else {
+        // This block no longer fits in this window -> pop it out
+        poppedIds.add(b.id);
       }
     }
   }
@@ -241,7 +254,6 @@ export function enforceWindowCapacityByPosition(
     return blocks;
   }
 
-  // Rebuild: keep non-popped in place, append popped at the very end
   const kept: TodayBlock[] = [];
   const popped: TodayBlock[] = [];
 
@@ -253,6 +265,7 @@ export function enforceWindowCapacityByPosition(
     }
   }
 
+  // Popped blocks move to the very end of the list as requested
   return [...kept, ...popped];
 }
 
@@ -274,11 +287,9 @@ export function rebalanceDayBlocksByPosition(
 
   const updated = blocks.map((b) => ({ ...b }));
 
-  // Pair each block with its index so we know where it lives in the list
   const lockedInfos = blocks
     .map((b, index) => ({ block: b, index }))
     .filter(({ block }) => isLockedBlock(block))
-    // sort locked by time to get the correct windows
     .sort((a, b) => a.block.startMinutes - b.block.startMinutes);
 
   type Window = {
@@ -329,7 +340,6 @@ export function rebalanceDayBlocksByPosition(
     });
   }
 
-  // For each window, distribute flexible blocks into 30-min slices
   for (const win of windows) {
     const span = win.end - win.start;
     const totalSlots = Math.floor(span / SLOT_MINUTES);
@@ -343,42 +353,63 @@ export function rebalanceDayBlocksByPosition(
       }
     }
 
-    const n = flexIndices.length;
-    if (n === 0) continue;
-
-    const count = Math.min(n, totalSlots);
-
-    let baseSlots = Math.floor(totalSlots / count);
-    if (baseSlots < 1) baseSlots = 1;
-
-    let usedBase = baseSlots * count;
-    if (usedBase > totalSlots) usedBase = totalSlots;
-
-    let remainingSlots = totalSlots - usedBase;
+    if (!flexIndices.length) continue;
 
     let cursor = win.start;
-    for (let i = 0; i < count; i++) {
-      const blockIndex = flexIndices[i];
+    let remainingSlots = totalSlots;
 
-      let slots = baseSlots;
-      if (remainingSlots > 0) {
-        slots += 1;
-        remainingSlots -= 1;
+    for (const idx of flexIndices) {
+      const prev = updated[idx];
+
+      const requestedDuration = Math.max(
+        SLOT_MINUTES,
+        getBlockDurationMinutes(prev)
+      );
+      let neededSlots = Math.ceil(requestedDuration / SLOT_MINUTES);
+
+      if (neededSlots > remainingSlots) {
+        if (remainingSlots <= 0) {
+          // No space left in this window; collapse to a zero-length block at cursor
+          updated[idx] = {
+            ...prev,
+            startMinutes: cursor,
+            endMinutes: cursor,
+          };
+          continue;
+        }
+        neededSlots = remainingSlots;
       }
 
       const start = cursor;
-      const end = Math.min(win.end, start + slots * SLOT_MINUTES);
-      cursor = end;
+      const end = Math.min(win.end, start + neededSlots * SLOT_MINUTES);
 
-      const prev = updated[blockIndex];
-      updated[blockIndex] = {
+      updated[idx] = {
         ...prev,
         startMinutes: start,
         endMinutes: end,
       };
+
+      cursor = end;
+      remainingSlots -= neededSlots;
     }
   }
 
-  // Keep the same list order; just updated times
   return updated;
+}
+
+export function buildBaseSlots(
+  dayStartMinutes: number,
+  dayEndMinutes: number,
+  slotMinutes = 30
+): TodaySlot[] {
+  const slots: TodaySlot[] = [];
+  for (let t = dayStartMinutes; t < dayEndMinutes; t += slotMinutes) {
+    slots.push({
+      id: `slot-${t}`,
+      startMinutes: t,
+      endMinutes: t + slotMinutes,
+      block: null,
+    });
+  }
+  return slots;
 }

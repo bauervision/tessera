@@ -248,9 +248,9 @@ export function ProjectCard({
             </p>
           ) : (
             <ul className="mb-3 space-y-2 ">
-              {combined.map((s) => (
+              {combined.map((s, i) => (
                 <li
-                  key={s.id}
+                  key={`${s.source}-${s.id} - ${i}`}
                   className=" text-[15px] flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-1
                              hover:border-sky-500/30 hover:bg-slate-900 hover:shadow-sm hover:shadow-sky-600/10 transition"
                 >

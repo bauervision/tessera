@@ -1,21 +1,28 @@
-//components/ui/TodayBlockRow.tsx
+"use client";
+
 import type React from "react";
-import { CSS } from "@dnd-kit/utilities";
-
-import { TodayBlock } from "@/lib/dailyRunDownHelpers";
+import {
+  TodayBlock,
+  getBlockDurationMinutes,
+  isLockedBlock,
+} from "@/lib/dailyRunDownHelpers";
 import { useSortable } from "@dnd-kit/sortable";
-import { CalendarDays } from "lucide-react";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  TimeSlotRowContent,
+  type TimeSlotVariant,
+} from "@/components/ui/TimeSlotRowContent";
 
-export function TodayBlockRow({
-  block,
-  timeLabel,
-  onEdit,
-}: {
+type Props = {
   block: TodayBlock;
   timeLabel: string;
   onEdit: (block: TodayBlock) => void;
-}) {
-  const isLocked = block.kind === "meeting" || block.kind === "lunch";
+  onResize?: (blockId: string, nextDurationMinutes: number) => void;
+};
+
+export function TodayBlockRow({ block, timeLabel, onEdit, onResize }: Props) {
+  const isLocked = isLockedBlock(block);
+  const durationMinutes = getBlockDurationMinutes(block);
 
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({
@@ -29,21 +36,12 @@ export function TodayBlockRow({
     cursor: isLocked ? "default" : "grab",
   };
 
-  const tone =
-    block.kind === "work"
-      ? "bg-sky-500/10 text-sky-100"
-      : block.kind === "meeting"
-      ? "bg-violet-500/15 text-violet-100 border border-violet-400/60"
+  const variant: TimeSlotVariant =
+    block.kind === "meeting"
+      ? "meeting"
       : block.kind === "lunch"
-      ? "bg-amber-500/10 text-amber-100 border border-amber-400/60"
-      : "bg-emerald-500/5 text-emerald-100 border border-emerald-400/40";
-
-  const labelText =
-    block.kind === "lunch"
-      ? "Lunch break"
-      : block.kind === "free"
-      ? "Free time (personal)"
-      : block.label;
+      ? "lunch"
+      : "work";
 
   return (
     <li
@@ -51,24 +49,42 @@ export function TodayBlockRow({
       style={style}
       {...attributes}
       {...(!isLocked ? listeners : {})}
-      onClick={() => {
-        if (!isLocked) onEdit(block);
-      }}
-      className={[
-        "flex items-center justify-between rounded-lg px-2 py-1",
-        tone,
-      ].join(" ")}
+      onDoubleClick={() => onEdit(block)}
     >
-      <div>
-        <div className="text-[15px]">{labelText}</div>
-        <div className="text-[13px] text-slate-300/50">{timeLabel}</div>
-      </div>
-
-      {block.kind === "meeting" && (
-        <div className="ml-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20">
-          <CalendarDays className="h-3.5 w-3.5 text-violet-100" />
-        </div>
-      )}
+      <TimeSlotRowContent
+        variant={variant}
+        label={block.label}
+        timeLabel={timeLabel}
+        hours={
+          block.hours ?? durationMinutes / 60 // fallback if hours isn't set
+        }
+        isLocked={isLocked}
+        durationMinutes={durationMinutes}
+        onResize={
+          onResize
+            ? (nextDurationMinutes) => onResize(block.id, nextDurationMinutes)
+            : undefined
+        }
+      />
     </li>
+  );
+}
+
+export function TodayEndDropZone({ id }: { id: string }) {
+  const { setNodeRef, isOver, transform, transition } = useSortable({ id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={`h-3 rounded border border-dashed border-slate-700/0 ${
+        isOver ? "border-sky-500/60 bg-sky-500/10" : ""
+      }`}
+    />
   );
 }

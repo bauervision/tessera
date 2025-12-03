@@ -40,16 +40,92 @@ import {
   timeToMinutes,
   TodayBlock,
 } from "@/lib/dailyRunDownHelpers";
-import { TodayBlockRow } from "./ui/TodayBlockRow";
+import { TodayBlockRow, TodayEndDropZone } from "./ui/TodayBlockRow";
 
-export default function DailyRundown() {
-  const [showRundown, setShowRundown] = useState(true);
+const END_OF_DAY_ID = "__drd-end__";
 
+type TimelineRow =
+  | {
+      key: string;
+      type: "block";
+      block: TodayBlock;
+      startMinutes: number;
+      endMinutes: number;
+    }
+  | {
+      key: string;
+      type: "empty";
+      startMinutes: number;
+      endMinutes: number;
+    };
+
+function buildTimelineRows(
+  blocks: TodayBlock[],
+  dayStart: number,
+  dayEnd: number,
+  slotMinutes = 30
+): TimelineRow[] {
+  if (dayEnd <= dayStart) return [];
+
+  const sorted = [...blocks].sort((a, b) => a.startMinutes - b.startMinutes);
+
+  const rows: TimelineRow[] = [];
+  let cursor = dayStart;
+
+  for (const block of sorted) {
+    // Fill gap before this block with "free" slots
+    const gapStart = cursor;
+    const gapEnd = Math.min(block.startMinutes, dayEnd);
+
+    for (let t = gapStart; t < gapEnd; t += slotMinutes) {
+      const slotEnd = Math.min(gapEnd, t + slotMinutes);
+      rows.push({
+        key: `empty-${t}`,
+        type: "empty",
+        startMinutes: t,
+        endMinutes: slotEnd,
+      });
+    }
+
+    // Then the block row itself
+    rows.push({
+      key: `block-${block.id}-${block.startMinutes}`,
+      type: "block",
+      block,
+      startMinutes: block.startMinutes,
+      endMinutes: block.endMinutes,
+    });
+
+    cursor = Math.max(cursor, block.endMinutes);
+  }
+
+  // Tail gap after last block
+  for (let t = cursor; t < dayEnd; t += slotMinutes) {
+    const slotEnd = Math.min(dayEnd, t + slotMinutes);
+    rows.push({
+      key: `empty-${t}`,
+      type: "empty",
+      startMinutes: t,
+      endMinutes: slotEnd,
+    });
+  }
+
+  return rows;
+}
+
+type DailyRundownProps = {
+  show: boolean;
+  onToggle: () => void;
+};
+
+export default function DailyRundown({ show, onToggle }: DailyRundownProps) {
   // We'll always show DRD for "real" today
   const [today] = useState(() => todayIso());
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [savedPlan, setSavedPlan] = useState<SavedWeeklyPlan | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
   const [projectOrder, setProjectOrder] = useState<string[] | null>(null);
 
   const [todayOverrides, setTodayOverrides] = useState<Record<
@@ -232,6 +308,7 @@ export default function DailyRundown() {
         label: getProjectLabel(projectId, savedPlan),
         startMinutes,
         endMinutes,
+        hours: (endMinutes - startMinutes) / 60,
       });
     });
 
@@ -249,6 +326,7 @@ export default function DailyRundown() {
         label: m.title,
         startMinutes: start,
         endMinutes: end,
+        hours: (end - start) / 60,
       });
     });
 
@@ -312,9 +390,19 @@ export default function DailyRundown() {
     if (!over || active.id === over.id) return;
 
     const current = orderedTodayBlocks;
-    const oldIndex = current.findIndex((b) => b.id === active.id);
-    const newIndex = current.findIndex((b) => b.id === over.id);
+    if (!current.length) return;
+
+    const ids = [...current.map((b) => b.id), END_OF_DAY_ID];
+
+    const oldIndex = ids.indexOf(String(active.id));
+    let newIndex = ids.indexOf(String(over.id));
+
     if (oldIndex === -1 || newIndex === -1) return;
+
+    // If dropped on the end-of-day target, move to last real block
+    if (over.id === END_OF_DAY_ID) {
+      newIndex = ids.length - 2; // index of last real item in ids
+    }
 
     // 1) Apply drag reorder
     let moved = arrayMove(current, oldIndex, newIndex);
@@ -419,12 +507,45 @@ export default function DailyRundown() {
 
   const sensorsExists = sensors; // just to avoid unused warning if TS gets weird
 
+  function handleResizeBlock(blockId: string, nextDurationMinutes: number) {
+    if (!todayPlan || todayPlan.status !== "work") return;
+
+    const { windowStart, windowEnd } = todayPlan;
+
+    setTodayOverrides((prev) => {
+      const current = prev ?? {};
+      const existingBlock = orderedTodayBlocks.find((b) => b.id === blockId);
+      if (!existingBlock) return current;
+
+      const start = Math.max(
+        windowStart,
+        Math.min(existingBlock.startMinutes, windowEnd)
+      );
+
+      const duration = Math.max(30, nextDurationMinutes); // clamp to at least 30m
+      const end = Math.min(windowEnd, start + duration);
+
+      const override: DailyTimeOverride = {
+        startMinutes: start,
+        endMinutes: end,
+      };
+
+      const next = {
+        ...current,
+        [blockId]: override,
+      };
+
+      saveDailyTimeOverride(today, blockId, override);
+      return next;
+    });
+  }
+
   return (
     <>
-      <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-950/90">
+      <div className="flex  min-h-0 flex-col rounded-2xl border border-slate-800 bg-slate-950/90">
         <button
           type="button"
-          onClick={() => setShowRundown((v) => !v)}
+          onClick={onToggle}
           className="flex w-full items-center justify-between px-3 py-2 text-left"
         >
           <div>
@@ -435,13 +556,11 @@ export default function DailyRundown() {
               {formatDayShort(today)}
             </div>
           </div>
-          <div className="text-[11px] text-slate-400">
-            {showRundown ? "▾" : "▸"}
-          </div>
+          <div className="text-[11px] text-slate-400">{show ? "▾" : "▸"}</div>
         </button>
 
-        {showRundown && (
-          <div className="border-t border-slate-800 px-3 pb-3 pt-2 text-[11px]">
+        {show && (
+          <div className="flex-1 border-t border-slate-800 px-3 pb-3 pt-2 text-[11px] flex flex-col">
             {!savedPlan && (
               <p className="text-slate-400">
                 No weekly plan saved yet. Use the{" "}
@@ -464,7 +583,7 @@ export default function DailyRundown() {
               todayPlan &&
               todayPlan.status === "work" &&
               orderedTodayBlocks.length > 0 && (
-                <div className="rounded-xl border border-slate-800 bg-slate-950/85 p-2">
+                <div className="mt-2 flex flex-1 min-h-0 flex-col rounded-xl border border-slate-800 bg-slate-950/85 p-2">
                   {/* Header row: matches StepFinalize day cards */}
                   <div className="mb-1 flex items-center justify-between">
                     <div>
@@ -481,34 +600,62 @@ export default function DailyRundown() {
                     </div>
                   </div>
 
-                  {/* Full-day block list (timeline) */}
-                  <ul className="space-y-1.5 text-[11px]">
+                  {/* Scrollable, 30-min sliced timeline that fills available height */}
+                  <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-slate-900/80 bg-slate-950/80">
                     <DndContext
-                      sensors={sensors}
+                      sensors={sensorsExists}
                       collisionDetection={closestCenter}
                       onDragEnd={handleDragEnd}
                     >
                       <SortableContext
-                        items={orderedTodayBlocks.map((b) => b.id)}
+                        items={[
+                          ...orderedTodayBlocks.map((b) => b.id),
+                          END_OF_DAY_ID,
+                        ]}
                         strategy={verticalListSortingStrategy}
                       >
-                        {orderedTodayBlocks.map((b) => {
-                          const timeLabel = `${formatMinutes(
-                            b.startMinutes
-                          )} – ${formatMinutes(b.endMinutes)}`;
+                        <ul className="space-y-1.5 p-2 text-[11px]">
+                          {buildTimelineRows(
+                            orderedTodayBlocks,
+                            todayPlan.windowStart,
+                            todayPlan.windowEnd
+                          ).map((row) => {
+                            const label = `${formatMinutes(
+                              row.startMinutes
+                            )} – ${formatMinutes(row.endMinutes)}`;
 
-                          return (
-                            <TodayBlockRow
-                              key={b.id}
-                              block={b}
-                              timeLabel={timeLabel}
-                              onEdit={openEditDialog}
-                            />
-                          );
-                        })}
+                            if (row.type === "empty") {
+                              return (
+                                <li
+                                  key={row.key}
+                                  className="flex items-center gap-2 rounded-md border border-dashed border-slate-800/80 bg-slate-950/60 px-2 py-1"
+                                >
+                                  <span className="w-24 text-[10px] font-mono text-slate-500">
+                                    {label}
+                                  </span>
+                                  <span className="text-[10px] text-slate-600">
+                                    Free 30 min
+                                  </span>
+                                </li>
+                              );
+                            }
+
+                            return (
+                              <TodayBlockRow
+                                key={row.key}
+                                block={row.block}
+                                timeLabel={label}
+                                onEdit={openEditDialog}
+                                onResize={handleResizeBlock}
+                              />
+                            );
+                          })}
+
+                          <TodayEndDropZone id={END_OF_DAY_ID} />
+                        </ul>
                       </SortableContext>
                     </DndContext>
-                  </ul>
+                  </div>
                 </div>
               )}
           </div>
@@ -584,5 +731,3 @@ export default function DailyRundown() {
     </>
   );
 }
-
-// Sortable row for DRD – meetings & lunch are not draggable or editable

@@ -23,157 +23,20 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { getMeetingsForDate } from "@/lib/storage";
 import type { Meeting } from "@/lib/types";
+import {
+  DayBlock,
+  DaySlotsByIndex,
+  formatDateLabelFromLabel,
+  formatMinutes,
+  isoForDayLabel,
+  makeInitialSlots,
+  FinalizeProps,
+  timeToMinutes,
+} from "./helpers";
+import { todayIso } from "@/lib/calendarHelpers";
+import { TimeSlotRowContent } from "@/components/ui/TimeSlotRowContent";
 
-type ViewMode = "wizard" | "schedule";
-
-type Props = {
-  tasks: WeeklyPlannerTask[];
-  days: DayConfig[];
-  totalAvailableHours: number;
-  priorities: PlannerPriorityRow[];
-  projectDoneFromDayIndex: Record<string, number>;
-  onProjectDoneFromDayIndexChange: (next: Record<string, number>) => void;
-  onSavePlan: () => void;
-  weekStartIso: string;
-  hasSavedPlan: boolean;
-  viewMode: ViewMode;
-  onViewModeChange: (mode: ViewMode) => void;
-};
-
-type DaySlot = {
-  id: string;
-  projectId: string;
-  projectName: string;
-  hours: number; // per-day hours already
-};
-
-type DaySlotsByIndex = Record<number, DaySlot[]>;
-
-type DayBlockKind = "work" | "meeting";
-
-type DayBlock = {
-  id: string;
-  kind: DayBlockKind;
-  label: string;
-  startMinutes: number;
-  endMinutes: number;
-  projectName?: string;
-  hours?: number;
-};
-
-// --- Weekday helpers (lock mapping to Monday-start week) ---
-
-const WEEKDAY_LABELS: string[] = [
-  "Mon",
-  "Tue",
-  "Wed",
-  "Thu",
-  "Fri",
-  "Sat",
-  "Sun",
-];
-
-function getDateForDayLabel(weekStartIso: string, dayLabel: string): Date {
-  const [y, m, d] = weekStartIso.split("-").map(Number);
-  const monday = new Date(y, (m || 1) - 1, d || 1); // weekStartIso is Monday
-  const idx = WEEKDAY_LABELS.indexOf(dayLabel);
-  if (idx === -1) {
-    return monday;
-  }
-  const date = new Date(monday);
-  date.setDate(monday.getDate() + idx);
-  return date;
-}
-
-function isoForDayLabel(weekStartIso: string, dayLabel: string): string {
-  const date = getDateForDayLabel(weekStartIso, dayLabel);
-  return date.toISOString().slice(0, 10);
-}
-
-function formatDateLabelFromLabel(weekStartIso: string, dayLabel: string) {
-  const date = getDateForDayLabel(weekStartIso, dayLabel);
-  return date.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatMinutes(mins: number): string {
-  const total = Math.round(mins);
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-}
-
-function timeToMinutes(t: string | null | undefined): number | null {
-  if (!t) return null;
-  const [hh, mm] = t.split(":").map(Number);
-  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
-  return hh * 60 + mm;
-}
-
-// --- Slots builder ---
-
-function makeInitialSlots(
-  tasks: WeeklyPlannerTask[],
-  days: DayConfig[],
-  priorities: PlannerPriorityRow[]
-): DaySlotsByIndex {
-  const result: DaySlotsByIndex = {};
-
-  const activeDayIndexes = days
-    .map((day, idx) => (day.active ? idx : -1))
-    .filter((idx) => idx !== -1);
-
-  if (activeDayIndexes.length === 0) {
-    days.forEach((_, idx) => {
-      result[idx] = [];
-    });
-    return result;
-  }
-
-  const enabledRows = priorities.filter((p) => p.enabled && p.weeklyHours > 0);
-
-  if (!enabledRows.length) {
-    days.forEach((_, idx) => {
-      result[idx] = [];
-    });
-    return result;
-  }
-
-  // Per-day hours for each project: weeklyHours / activeDayCount
-  const perDayRows = enabledRows.map((row) => {
-    const task = tasks.find((t) => t.projectId === row.projectId);
-    const projectName = task?.projectName ?? "Project";
-    const perDayHours = row.weeklyHours / activeDayIndexes.length;
-    return {
-      projectId: row.projectId,
-      projectName,
-      perDayHours,
-    };
-  });
-
-  days.forEach((day, idx) => {
-    if (!day.active) {
-      result[idx] = [];
-      return;
-    }
-
-    const slots: DaySlot[] = perDayRows.map((row) => ({
-      id: `${idx}-${row.projectId}`,
-      projectId: row.projectId,
-      projectName: row.projectName,
-      hours: row.perDayHours,
-    }));
-
-    result[idx] = slots;
-  });
-
-  return result;
-}
-
-// --- Row components ---
+// --- Small UI Row components ---
 
 function WorkBlockRow({ block }: { block: DayBlock }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
@@ -190,22 +53,13 @@ function WorkBlockRow({ block }: { block: DayBlock }) {
   )}`;
 
   return (
-    <li
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      className="flex items-center justify-between rounded-lg border border-sky-500/50 bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-100"
-    >
-      <div className="flex flex-col">
-        <span className="text-[13px] font-medium text-sky-100">
-          {block.label}
-        </span>
-        <span className="text-[11px] text-sky-200/90">
-          {timeLabel} · {(block.hours ?? 0).toFixed(1)}h focus
-        </span>
-      </div>
-      <span className="ml-2 text-[11px] text-sky-300/80">⠿</span>
+    <li ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <TimeSlotRowContent
+        variant="work"
+        label={block.label}
+        timeLabel={timeLabel}
+        hours={block.hours}
+      />
     </li>
   );
 }
@@ -216,32 +70,39 @@ function MeetingBlockRow({ block }: { block: DayBlock }) {
   )}`;
 
   return (
-    <li className="flex items-center justify-between rounded-lg border border-violet-500/60 bg-violet-500/15 px-2 py-1.5 text-[11px] text-violet-100">
-      <div className="flex flex-col">
-        <span className="text-[13px] font-medium text-violet-50">
-          {block.label}
-        </span>
-        <span className="text-[11px] text-violet-200/90">{timeLabel}</span>
-      </div>
-      <span className="ml-2 text-[11px] text-violet-200/90">📅</span>
+    <li>
+      <TimeSlotRowContent
+        variant="meeting"
+        label={block.label}
+        timeLabel={timeLabel}
+      />
     </li>
   );
 }
 
-export default function StepFinalize(props: Props) {
-  const {
-    tasks,
-    days,
-    totalAvailableHours,
-    priorities,
-    projectDoneFromDayIndex,
-    onProjectDoneFromDayIndexChange,
-    onSavePlan,
-    weekStartIso,
-    hasSavedPlan,
-    viewMode,
-    onViewModeChange,
-  } = props;
+const END_OF_DAY_ID = "__finalize-end__";
+
+function EndOfDayDropZone({ id }: { id: string }) {
+  const { setNodeRef, isOver, transform, transition } = useSortable({ id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={`h-3 rounded border border-dashed border-slate-700/0 ${
+        isOver ? "border-sky-500/60 bg-sky-500/10" : ""
+      }`}
+    />
+  );
+}
+
+export default function StepFinalize(props: FinalizeProps) {
+  const { tasks, days, totalAvailableHours, priorities, weekStartIso } = props;
 
   // Planner math
   const totalPlannedHours = useMemo(
@@ -282,12 +143,20 @@ export default function StepFinalize(props: Props) {
     if (!over || active.id === over.id) return;
 
     const daySlots = slotsByDay[dayIndex] ?? [];
-    const ids = daySlots.map((s) => s.id);
+    if (!daySlots.length) return;
+
+    const ids = [...daySlots.map((s) => s.id), END_OF_DAY_ID];
 
     const oldIndex = ids.indexOf(String(active.id));
-    const newIndex = ids.indexOf(String(over.id));
+    let newIndex = ids.indexOf(String(over.id));
 
     if (oldIndex === -1 || newIndex === -1) return;
+
+    // If dropped on the synthetic end-of-day target,
+    // move to the last real slot.
+    if (over.id === END_OF_DAY_ID) {
+      newIndex = ids.length - 2; // index of last real item
+    }
 
     const reordered = arrayMove(daySlots, oldIndex, newIndex);
     setSlotsByDay((prev) => ({
@@ -296,13 +165,23 @@ export default function StepFinalize(props: Props) {
     }));
   }
 
+  const today = todayIso();
+
   return (
     <section className="space-y-4">
       {/* Day grid – ONLY active days */}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {days
           .map((day, dayIndex) => ({ day, dayIndex }))
-          .filter(({ day }) => day.active)
+          .filter(({ day, dayIndex }) => {
+            if (!day.active) return false;
+
+            // Map this label to an ISO date in the current week
+            const dayIso = isoForDayLabel(weekStartIso, day.label);
+
+            // Keep only today and future days
+            return dayIso >= today;
+          })
           .map(({ day, dayIndex }) => {
             const prettyDate = formatDateLabelFromLabel(
               weekStartIso,
@@ -414,7 +293,7 @@ export default function StepFinalize(props: Props) {
                     >
                       {/* Only work block IDs are sortable; meetings are static */}
                       <SortableContext
-                        items={slots.map((s) => s.id)}
+                        items={[...slots.map((s) => s.id), END_OF_DAY_ID]}
                         strategy={verticalListSortingStrategy}
                       >
                         <ul className="space-y-1.5 text-[11px]">
@@ -425,6 +304,7 @@ export default function StepFinalize(props: Props) {
                               <MeetingBlockRow key={block.id} block={block} />
                             )
                           )}
+                          <EndOfDayDropZone id={END_OF_DAY_ID} />
                         </ul>
                       </SortableContext>
                     </DndContext>

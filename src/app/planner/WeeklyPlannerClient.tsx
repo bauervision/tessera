@@ -200,15 +200,15 @@ export default function WeeklyPlannerClient() {
               >
                 Back to wizard
               </button>
-              <button
-                type="button"
-                onClick={handleSavePlan}
-                className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm hover:bg-emerald-400"
-              >
-                Save weekly schedule
-              </button>
             </div>
           )}
+          <button
+            type="button"
+            onClick={handleSavePlan}
+            className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm hover:bg-emerald-400"
+          >
+            Save weekly schedule
+          </button>
         </div>
       </header>
 
