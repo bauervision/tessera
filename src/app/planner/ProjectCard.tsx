@@ -21,14 +21,16 @@ type ProjectCardProps = {
   autoTasks: AutoTask[];
   subtasks: SubTask[];
   expanded: boolean;
+  highlighted: boolean;
   onToggleExpanded: () => void;
   onToggleEnabled: () => void;
   onAutoTasksChange: (next: AutoTask[]) => void;
   onSubtasksChange: (next: SubTask[]) => void;
-  onDragStart: (e: React.DragEvent<HTMLLIElement>) => void;
+  onDragStart: (e: React.DragEvent<HTMLSpanElement>) => void;
   onDragOver: (e: React.DragEvent<HTMLLIElement>) => void;
   onDrop: (e: React.DragEvent<HTMLLIElement>) => void;
-  onDragEnd: (e: React.DragEvent<HTMLLIElement>) => void;
+  onDragEnd: (e: React.DragEvent<HTMLSpanElement>) => void;
+  onHoursChanged: () => void;
 };
 
 type CombinedTask =
@@ -43,6 +45,7 @@ export function ProjectCard({
   autoTasks,
   subtasks,
   expanded,
+  highlighted,
   onToggleExpanded,
   onToggleEnabled,
   onAutoTasksChange,
@@ -51,6 +54,7 @@ export function ProjectCard({
   onDragOver,
   onDrop,
   onDragEnd,
+  onHoursChanged,
 }: ProjectCardProps) {
   const [newLabel, setNewLabel] = useState("");
   const [newHours, setNewHours] = useState("");
@@ -104,15 +108,13 @@ export function ProjectCard({
 
   return (
     <li
-      draggable
-      onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      onDragEnd={onDragEnd}
       className={[
         "rounded-xl border border-slate-800 bg-slate-900/70 p-3 shadow-sm transition",
         "hover:border-sky-500/40 hover:bg-slate-900/90 hover:shadow-md hover:shadow-sky-600/10",
         isDragging ? "opacity-60 ring-1 ring-sky-500" : "",
+        highlighted ? "ring-1 ring-emerald-400 animate-pulse" : "",
         !enabled ? "opacity-60" : "",
       ].join(" ")}
     >
@@ -139,7 +141,16 @@ export function ProjectCard({
               <div className="text-lg font-semibold text-slate-100">
                 {t.projectName}
               </div>
-              <span className="cursor-grab text-[10px] text-slate-500">⠿</span>
+              {/* Drag handle only – so text inputs don't trigger drag */}
+              <span
+                className="cursor-grab text-[10px] text-slate-500"
+                draggable
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+                onClick={(e) => e.stopPropagation()}
+              >
+                ⠿
+              </span>
             </div>
             {t.companyName && (
               <div className="text-xs text-slate-400">{t.companyName}</div>
@@ -228,7 +239,7 @@ export function ProjectCard({
       {/* Accordion panel */}
       {expanded && (
         <div className="mt-3 border-t border-slate-800 pt-3 text-[15px] text-slate-300">
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <span className="font-semibold text-slate-200">
               Tasks for this project
             </span>
@@ -247,12 +258,13 @@ export function ProjectCard({
               documentation (1h)&quot;.
             </p>
           ) : (
-            <ul className="mb-3 space-y-2 ">
+            <ul className="mb-3 space-y-2">
               {combined.map((s, i) => (
                 <li
                   key={`${s.source}-${s.id} - ${i}`}
-                  className=" text-[15px] flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-1
+                  className="text-[15px] flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-1
                              hover:border-sky-500/30 hover:bg-slate-900 hover:shadow-sm hover:shadow-sky-600/10 transition"
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <input
                     type="checkbox"
@@ -269,6 +281,7 @@ export function ProjectCard({
                           included: !prev.included,
                         }));
                       }
+                      onHoursChanged();
                     }}
                     className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
                   />
@@ -292,12 +305,18 @@ export function ProjectCard({
                     }}
                     className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-[16px] text-slate-100"
                     placeholder="Task description"
+                    onClick={(e) => e.stopPropagation()}
                   />
 
-                  <div className="flex items-center gap-1">
+                  {/* Slider for hours (DRD-style control) */}
+                  <div
+                    className="flex items-center gap-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <input
-                      type="number"
+                      type="range"
                       min={0}
+                      max={8}
                       step={0.5}
                       value={s.estimatedHours}
                       onChange={(e) => {
@@ -315,16 +334,22 @@ export function ProjectCard({
                             estimatedHours: n,
                           }));
                         }
+                        onHoursChanged();
                       }}
-                      className="w-14 rounded-md border border-slate-700 bg-slate-950 px-1 py-0.5 text-right text-[11px] text-slate-100"
+                      className="h-1 w-32 cursor-pointer accent-emerald-500"
                     />
-                    <span className="text-slate-500">h</span>
+                    <span className="w-12 text-right text-[11px] text-slate-100">
+                      {s.estimatedHours.toFixed(1)}h
+                    </span>
                   </div>
 
                   {s.source === "manual" && (
                     <button
                       type="button"
-                      onClick={() => removeSubtask(s.id)}
+                      onClick={() => {
+                        removeSubtask(s.id);
+                        onHoursChanged();
+                      }}
                       className="ml-1 text-slate-500 hover:text-rose-400"
                     >
                       ✕
@@ -339,6 +364,7 @@ export function ProjectCard({
           <div
             className="flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/70 px-2 py-2
                           hover:border-sky-500/40 hover:bg-slate-900/80 transition"
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex min-w-[180px] flex-1 flex-col">
               <span className="text-[10px] text-slate-400">New task</span>
@@ -364,7 +390,10 @@ export function ProjectCard({
             </div>
             <button
               type="button"
-              onClick={handleAddSubtask}
+              onClick={() => {
+                handleAddSubtask();
+                onHoursChanged();
+              }}
               className="ml-auto inline-flex items-center rounded-full bg-sky-500 px-3 py-1 text-[11px] font-semibold text-slate-950 hover:bg-sky-400"
             >
               Add task

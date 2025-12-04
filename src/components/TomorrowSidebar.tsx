@@ -3,8 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ProjectBrief, Session, ProjectId } from "@/lib/types";
 import {
+  addToLocalTomorrowArchive,
   collectNextMoveTasksFromSessions,
   extractTomorrowTasks,
+  getTomorrowTaskHours,
+  removeTomorrowTask,
+  removeTomorrowTaskHours,
+  setTomorrowTaskHours,
 } from "@/lib/tomorrow";
 import { Plus } from "lucide-react";
 
@@ -52,6 +57,23 @@ export function TomorrowSidebar({
   const [quickTasks, setQuickTasks] = useState<string[]>([]);
   const [quickInput, setQuickInput] = useState("");
 
+  // Per-task estimated hours for this project (by task label)
+  const [hoursByTask, setHoursByTask] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    // Load hours whenever project changes
+    setHoursByTask(getTomorrowTaskHours(projectId));
+  }, [projectId]);
+
+  const handleHoursChange = (task: string, raw: number | string) => {
+    const n =
+      typeof raw === "number" ? raw : Number((raw as string).trim() || "0");
+    if (Number.isNaN(n) || n < 0) return;
+
+    const next = setTomorrowTaskHours(projectId, task, n);
+    setHoursByTask(next);
+  };
+
   useEffect(() => {
     const all = loadQuickTasks();
     setQuickTasks(all[projectId] ?? []);
@@ -79,6 +101,7 @@ export function TomorrowSidebar({
   const removeQuickTask = (task: string) => {
     const next = quickTasks.filter((t) => t !== task);
     setQuickTasksForProject(next);
+    removeTomorrowTaskHours(projectId, task);
   };
 
   const tomorrowFromBrief = useMemo(
@@ -216,135 +239,144 @@ export function TomorrowSidebar({
 
       {tab === "tomorrow" && !isEmpty && (
         <div className="mt-3 space-y-3 text-xs">
+          {/* From Arden brief */}
           {hasBriefTasks && (
             <section>
               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
                 From Arden brief
               </div>
               <div className="mt-1 flex flex-wrap gap-1.5">
-                {briefActiveTasks.map((task, i) => {
+                {briefActiveTasks.map((task) => {
                   const isDone = completed.includes(task);
+                  const currentHours = hoursByTask[task] ?? 0.5;
+
                   return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => onToggle(task)}
-                      className={
-                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors " +
-                        (isDone
-                          ? "border-emerald-400 bg-emerald-500/15 text-emerald-100"
-                          : "border-slate-600 bg-slate-950/70 text-slate-100")
-                      }
-                    >
-                      <span
-                        className={
-                          "h-1.5 w-1.5 rounded-full " +
-                          (isDone ? "bg-emerald-400" : "bg-emerald-300")
+                    <TomorrowTaskRow
+                      key={task}
+                      projectId={projectId}
+                      task={task}
+                      isDone={isDone}
+                      currentHours={currentHours}
+                      onToggleDone={() => {
+                        if (!isDone) {
+                          // First click → mark as done
+                          onToggle(task);
+                          return;
                         }
-                      />
-                      <span
-                        className={
-                          "line-clamp-2 " +
-                          (isDone ? "line-through opacity-80" : "")
+
+                        // Second click ("Done?") → archive + clean up
+                        onToggle(task);
+                        addToLocalTomorrowArchive(projectId, task);
+                        removeTomorrowTask(projectId, task);
+                        removeTomorrowTaskHours(projectId, task);
+                      }}
+                      onHoursChange={(h) => {
+                        if (h <= 0) {
+                          if (!isDone) {
+                            onToggle(task);
+                          }
+                          handleHoursChange(task, 0);
+                          return;
                         }
-                      >
-                        {task}
-                      </span>
-                    </button>
+                        handleHoursChange(task, h);
+                      }}
+                    />
                   );
                 })}
               </div>
             </section>
           )}
 
+          {/* From session next moves */}
           {hasNextMoves && (
             <section>
               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
                 From session next moves
               </div>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {activeNextMoves.map((task, i) => {
+              <div className="mt-1 flex flex-col gap-2">
+                {activeNextMoves.map((task) => {
                   const isDone = completed.includes(task);
+                  const currentHours = hoursByTask[task] ?? 0.5;
+
                   return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => onToggle(task)}
-                      className={
-                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors " +
-                        (isDone
-                          ? "border-emerald-400 bg-emerald-500/15 text-emerald-100"
-                          : "border-slate-600 bg-slate-950/70 text-emerald-200")
-                      }
-                    >
-                      <span
-                        className={
-                          "h-1.5 w-1.5 rounded-full " +
-                          (isDone ? "bg-emerald-400" : "bg-emerald-300")
+                    <TomorrowTaskRow
+                      key={task}
+                      projectId={projectId}
+                      task={task}
+                      isDone={isDone}
+                      currentHours={currentHours}
+                      onToggleDone={() => {
+                        if (!isDone) {
+                          // First click → mark as done
+                          onToggle(task);
+                          return;
                         }
-                      />
-                      <span
-                        className={
-                          "line-clamp-2 " +
-                          (isDone ? "line-through opacity-80" : "")
+
+                        // Second click ("Done?") → archive + clean up
+                        onToggle(task);
+                        addToLocalTomorrowArchive(projectId, task);
+                        removeTomorrowTask(projectId, task);
+                        removeTomorrowTaskHours(projectId, task);
+                      }}
+                      onHoursChange={(h) => {
+                        if (h <= 0) {
+                          if (!isDone) {
+                            onToggle(task);
+                          }
+                          handleHoursChange(task, 0);
+                          return;
                         }
-                      >
-                        {task}
-                      </span>
-                    </button>
+                        handleHoursChange(task, h);
+                      }}
+                    />
                   );
                 })}
               </div>
             </section>
           )}
 
+          {/* Quick notes */}
           {hasQuickTasks && (
             <section>
               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
                 Quick notes
               </div>
-              <div className="mt-1 flex flex-wrap gap-1.5">
+              <div className="mt-1 flex flex-col gap-2">
                 {quickTasks.map((task) => {
                   const isDone = completed.includes(task);
+                  const currentHours = hoursByTask[task] ?? 0.5;
+
                   return (
-                    <div
+                    <TomorrowTaskRow
                       key={task}
-                      className={
-                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] " +
-                        (isDone
-                          ? "border-emerald-400 bg-emerald-500/15 text-emerald-100"
-                          : "border-slate-600 bg-slate-950/70 text-slate-100")
-                      }
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onToggle(task)}
-                        className="flex items-center gap-1"
-                      >
-                        <span
-                          className={
-                            "h-1.5 w-1.5 rounded-full " +
-                            (isDone ? "bg-emerald-400" : "bg-emerald-300")
+                      projectId={projectId}
+                      task={task}
+                      isDone={isDone}
+                      currentHours={currentHours}
+                      onToggleDone={() => {
+                        if (!isDone) {
+                          // First click → mark as done
+                          onToggle(task);
+                          return;
+                        }
+
+                        // Second click ("Done?") → archive + clean up
+                        onToggle(task);
+                        addToLocalTomorrowArchive(projectId, task);
+                        removeTomorrowTask(projectId, task);
+                        removeTomorrowTaskHours(projectId, task);
+                      }}
+                      onHoursChange={(h) => {
+                        if (h <= 0) {
+                          if (!isDone) {
+                            onToggle(task);
                           }
-                        />
-                        <span
-                          className={
-                            "line-clamp-2 text-left " +
-                            (isDone ? "line-through opacity-80" : "")
-                          }
-                        >
-                          {task}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeQuickTask(task)}
-                        className="ml-1 text-[10px] text-slate-500 hover:text-red-400"
-                        aria-label="Remove quick task"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                          handleHoursChange(task, 0);
+                          return;
+                        }
+                        handleHoursChange(task, h);
+                      }}
+                    />
                   );
                 })}
               </div>
@@ -374,6 +406,89 @@ export function TomorrowSidebar({
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function TomorrowTaskRow({
+  projectId,
+  task,
+  isDone,
+  onToggleDone,
+  currentHours,
+  onHoursChange,
+}: {
+  projectId: ProjectId;
+  task: string;
+  isDone: boolean;
+  onToggleDone: () => void;
+  currentHours: number;
+  onHoursChange: (n: number) => void;
+}) {
+  return (
+    <div
+      className={
+        "flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] " +
+        (isDone
+          ? "border-emerald-400 bg-emerald-500/15 text-emerald-100"
+          : "border-slate-600 bg-slate-950/70 text-slate-100")
+      }
+    >
+      {/* Toggle button */}
+      <button
+        type="button"
+        onClick={onToggleDone}
+        className="flex items-center gap-1"
+      >
+        <span
+          className={
+            "h-1.5 w-1.5 rounded-full " +
+            (isDone ? "bg-emerald-400" : "bg-emerald-300")
+          }
+        />
+        <span
+          className={
+            "line-clamp-2 text-left " +
+            (isDone ? "line-through opacity-80" : "")
+          }
+        >
+          {task}
+        </span>
+      </button>
+
+      {/* Hours slider */}
+      {!isDone && (
+        <input
+          type="range"
+          min={0}
+          max={6}
+          step={0.5}
+          value={currentHours}
+          onChange={(e) => {
+            const num = Number(e.target.value);
+            onHoursChange(num);
+          }}
+          className="w-20 accent-emerald-500"
+        />
+      )}
+
+      {/* Hours label */}
+      {!isDone && (
+        <span className="text-[10px] text-slate-400 w-8 text-right">
+          {currentHours.toFixed(1)}h
+        </span>
+      )}
+
+      {/* Done? button */}
+      {isDone && (
+        <button
+          type="button"
+          onClick={onToggleDone}
+          className="ml-2 text-[10px] text-emerald-300 hover:text-emerald-200"
+        >
+          Done?
+        </button>
       )}
     </div>
   );

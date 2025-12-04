@@ -2,6 +2,8 @@
 import type { ProjectId, Session } from "./types";
 
 const ACC_KEY_PREFIX = "tessera:tomorrow:";
+const HOURS_KEY_PREFIX = "tessera:tomorrowHours:";
+const LOCAL_ARCHIVE_PREFIX = "tessera:tomorrowLocalArchive:";
 
 function accKey(projectId: ProjectId) {
   return `${ACC_KEY_PREFIX}${projectId}`;
@@ -22,14 +24,15 @@ function readAccumulator(projectId: ProjectId): string[] {
 
 function writeAccumulator(projectId: ProjectId, tasks: string[]) {
   if (typeof window === "undefined") return;
-  if (!tasks.length) {
+  const cleaned = tasks.map((t) => t.trim()).filter(Boolean);
+  if (!cleaned.length) {
     window.localStorage.removeItem(accKey(projectId));
   } else {
-    window.localStorage.setItem(accKey(projectId), JSON.stringify(tasks));
+    window.localStorage.setItem(accKey(projectId), JSON.stringify(cleaned));
   }
 }
 
-// 🔹 Public helpers
+// 🔹 Public accumulator helpers (active tomorrow tasks)
 
 export function getTomorrowAccumulator(projectId: ProjectId): string[] {
   return readAccumulator(projectId);
@@ -95,6 +98,7 @@ export function extractTomorrowTasks(workPlan: string): string[] {
 
   return tasks;
 }
+
 function normalizeLines(raw: unknown): string[] {
   if (!raw) return [];
 
@@ -142,4 +146,128 @@ export function collectNextMoveTasksFromSessions(sessions: Session[]): {
   const archived = Array.from(completed);
 
   return { active, archived };
+}
+
+/* 🔹 Hours per tomorrow task (by label) */
+
+type HoursMap = Record<string, number>;
+
+function hoursKey(projectId: ProjectId) {
+  return `${HOURS_KEY_PREFIX}${projectId}`;
+}
+
+function readHours(projectId: ProjectId): HoursMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(hoursKey(projectId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: HoursMap = {};
+    for (const [k, v] of Object.entries(parsed as any)) {
+      const num = Number(v);
+      if (!Number.isNaN(num) && num >= 0) out[String(k)] = num;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeHours(projectId: ProjectId, map: HoursMap) {
+  if (typeof window === "undefined") return;
+  const cleaned: HoursMap = {};
+  for (const [k, v] of Object.entries(map)) {
+    if (v > 0) cleaned[k] = v;
+  }
+  if (Object.keys(cleaned).length === 0) {
+    window.localStorage.removeItem(hoursKey(projectId));
+  } else {
+    window.localStorage.setItem(hoursKey(projectId), JSON.stringify(cleaned));
+  }
+}
+
+export function getTomorrowTaskHours(projectId: ProjectId): HoursMap {
+  return readHours(projectId);
+}
+
+/**
+ * Set hours for a specific tomorrow task label.
+ * Returns the updated map so callers can sync local state.
+ */
+export function setTomorrowTaskHours(
+  projectId: ProjectId,
+  task: string,
+  hours: number
+): HoursMap {
+  const map = readHours(projectId);
+  const label = task.trim();
+  if (!label) return map;
+  if (hours <= 0) {
+    delete map[label];
+  } else {
+    map[label] = hours;
+  }
+  writeHours(projectId, map);
+  return map;
+}
+
+export function removeTomorrowTaskHours(
+  projectId: ProjectId,
+  task: string
+): HoursMap {
+  const map = readHours(projectId);
+  const label = task.trim();
+  if (!label) return map;
+  delete map[label];
+  writeHours(projectId, map);
+  return map;
+}
+
+/* 🔹 Local archive overrides (for quick "Done?" without waiting for sessions) */
+
+function localArchiveKey(projectId: ProjectId) {
+  return `${LOCAL_ARCHIVE_PREFIX}${projectId}`;
+}
+
+function readLocalArchive(projectId: ProjectId): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(localArchiveKey(projectId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((t) => String(t)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalArchive(projectId: ProjectId, tasks: string[]) {
+  if (typeof window === "undefined") return;
+  const cleaned = tasks.map((t) => t.trim()).filter(Boolean);
+  if (!cleaned.length) {
+    window.localStorage.removeItem(localArchiveKey(projectId));
+  } else {
+    window.localStorage.setItem(
+      localArchiveKey(projectId),
+      JSON.stringify(cleaned)
+    );
+  }
+}
+
+export function getLocalTomorrowArchive(projectId: ProjectId): string[] {
+  return readLocalArchive(projectId);
+}
+
+export function addToLocalTomorrowArchive(
+  projectId: ProjectId,
+  task: string
+): string[] {
+  const existing = readLocalArchive(projectId);
+  const label = task.trim();
+  if (!label) return existing;
+  if (!existing.includes(label)) existing.push(label);
+  writeLocalArchive(projectId, existing);
+  return existing;
 }

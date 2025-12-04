@@ -77,82 +77,6 @@ function makeId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// ----- dummy scenario projects -----
-
-/**
- * Creates a stable list of dummy projects for a given scenario.
- * You can tweak baseWeeklyHours / counts to explode or shrink the week.
- */
-export function buildDummyProjects(
-  weekStartIso: string,
-  scenario: DummyScenario
-): DummyProject[] {
-  // scenario multiplier: light < normal < heavy
-  const mult = scenario === "light" ? 0.6 : scenario === "heavy" ? 1.4 : 1.0;
-
-  const base: DummyProject[] = [
-    {
-      id: "tessera",
-      name: "Tessera Weekly Planner",
-      company: "BauerVision",
-      baseWeeklyHours: 10,
-      lastTouchedDaysAgo: 1,
-      milestoneCount: 2,
-      tomorrowTasksCount: 3,
-      meetingCount: 1,
-    },
-    {
-      id: "sonus",
-      name: "Sonus Web Rebuild",
-      company: "IBM R&D",
-      baseWeeklyHours: 8,
-      lastTouchedDaysAgo: 5,
-      milestoneCount: 2,
-      tomorrowTasksCount: 2,
-      meetingCount: 1,
-    },
-    {
-      id: "gailforce",
-      name: "Gailforce Workspace & Control Panel",
-      company: "Knexus / DLA",
-      baseWeeklyHours: 12,
-      lastTouchedDaysAgo: 3,
-      milestoneCount: 3,
-      tomorrowTasksCount: 4,
-      meetingCount: 2,
-    },
-    {
-      id: "knexplan",
-      name: "KnexPlan Route Visualizer",
-      company: "Knexus",
-      baseWeeklyHours: 6,
-      lastTouchedDaysAgo: 10,
-      milestoneCount: 1,
-      tomorrowTasksCount: 1,
-      meetingCount: 0,
-    },
-    {
-      id: "mentrogress",
-      name: "Mentrogress Session Engine",
-      company: "BauerVision",
-      baseWeeklyHours: 4,
-      lastTouchedDaysAgo: 7,
-      milestoneCount: 1,
-      tomorrowTasksCount: 2,
-      meetingCount: 0,
-    },
-  ];
-
-  // Scale hours and counts by scenario
-  return base.map((p) => ({
-    ...p,
-    baseWeeklyHours: p.baseWeeklyHours * mult,
-    milestoneCount: Math.max(0, Math.round(p.milestoneCount * mult)),
-    tomorrowTasksCount: Math.max(0, Math.round(p.tomorrowTasksCount * mult)),
-    meetingCount: Math.max(0, Math.round(p.meetingCount * mult)),
-  }));
-}
-
 // ----- core builder: DummyProject[] -> WeeklyPlannerTask[] -----
 
 export function buildWeeklyTasks(
@@ -421,25 +345,7 @@ export function buildRealWeeklyTasks(
     const milestones = milestonesByProject.get(p.id) ?? [];
     const meetings = p.jobId ? meetingsByJob.get(p.jobId) ?? [] : [];
 
-    // Base "core work" hours for this project
-    const baseHours = 2 * mult;
-
-    // Extra hours from milestones + a light buffer for meetings
-    const milestoneHours = milestones.reduce((sum, ms) => sum + ms.hours, 0);
-    const meetingHours = meetings.length * 0.5 * mult; // 0.5h per meeting buffer
-
-    const coreBlockHours = baseHours + milestoneHours + meetingHours;
-
     const autoTasks: WeeklyPlannerTask["autoTasks"] = [];
-
-    if (coreBlockHours > 0) {
-      autoTasks.push({
-        id: makeId(`base_${p.id}`),
-        label: "Core work block for this project",
-        estimatedHours: coreBlockHours,
-        included: true,
-      });
-    }
 
     milestones.forEach((ms) => {
       autoTasks.push({
