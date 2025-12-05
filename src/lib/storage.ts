@@ -407,6 +407,7 @@ export function addMeeting(input: {
   location: string | null;
   jobId: string;
   recurrence?: MeetingRecurrence;
+  durationMinutes?: number;
 }): Meeting {
   const existing = loadMeetingsInternal();
 
@@ -418,6 +419,7 @@ export function addMeeting(input: {
     location: input.location,
     jobId: input.jobId,
     recurrence: input.recurrence ?? "none",
+    durationMinutes: input.durationMinutes ?? 30,
   };
 
   const next = [...existing, meeting];
@@ -425,10 +427,23 @@ export function addMeeting(input: {
   return meeting;
 }
 
-export function deleteMeeting(id: string) {
-  const existing = loadMeetingsInternal();
-  const next = existing.filter((m) => m.id !== id);
-  saveMeetingsInternal(next);
+export function cancelMeeting(meetingId: string) {
+  if (typeof window === "undefined") return;
+
+  const raw = window.localStorage.getItem("tessera:meetings"); // <- use your real key
+  if (!raw) return;
+
+  let meetings: Meeting[];
+  try {
+    meetings = JSON.parse(raw) as Meeting[];
+  } catch {
+    return;
+  }
+
+  const next = meetings.filter((m) => m.id !== meetingId);
+  window.localStorage.setItem("tessera:meetings", JSON.stringify(next));
+
+  window.dispatchEvent(new Event("tessera:meetings-updated"));
 }
 
 export function getMeetingsForDate(dateIso: string): Meeting[] {

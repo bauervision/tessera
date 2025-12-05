@@ -128,6 +128,7 @@ export type TodayBlock = {
   startMinutes: number;
   endMinutes: number;
   hours?: number;
+  meetingId?: string;
 };
 
 export type TodaySlot = {

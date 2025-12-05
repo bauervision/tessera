@@ -1,3 +1,4 @@
+// components/TomorrowSidebar.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -35,6 +36,13 @@ function saveQuickTasks(map: QuickTasksMap) {
   window.localStorage.setItem(QUICK_TOMORROW_KEY, JSON.stringify(map));
 }
 
+type TaskSource = "brief" | "next" | "quick";
+
+type CombinedTask = {
+  label: string;
+  source: TaskSource;
+};
+
 export function TomorrowSidebar({
   projectId,
   brief,
@@ -60,23 +68,20 @@ export function TomorrowSidebar({
   // Per-task estimated hours for this project (by task label)
   const [hoursByTask, setHoursByTask] = useState<Record<string, number>>({});
 
-  useEffect(() => {
-    // Load hours whenever project changes
-    setHoursByTask(getTomorrowTaskHours(projectId));
-  }, [projectId]);
+  // Local archive to hide tasks immediately after "Done?"
+  const [archivedLabels, setArchivedLabels] = useState<string[]>([]);
 
-  const handleHoursChange = (task: string, raw: number | string) => {
-    const n =
-      typeof raw === "number" ? raw : Number((raw as string).trim() || "0");
-    if (Number.isNaN(n) || n < 0) return;
+  const completedSet = useMemo(() => new Set(completed), [completed]);
+  const archivedLabelsSet = useMemo(
+    () => new Set(archivedLabels),
+    [archivedLabels]
+  );
 
-    const next = setTomorrowTaskHours(projectId, task, n);
-    setHoursByTask(next);
-  };
-
+  // Load quick tasks + hours whenever project changes
   useEffect(() => {
     const all = loadQuickTasks();
     setQuickTasks(all[projectId] ?? []);
+    setHoursByTask(getTomorrowTaskHours(projectId));
   }, [projectId]);
 
   const setQuickTasksForProject = (next: string[]) => {
@@ -111,12 +116,10 @@ export function TomorrowSidebar({
 
   const { active: activeNextMoves, archived: archivedNextMoves } =
     useMemo(() => {
-      // Preferred: accumulator across all sessions
       if (sessions && sessions.length > 0) {
         return collectNextMoveTasksFromSessions(sessions);
       }
 
-      // Fallback: legacy behavior when we only have lastSession
       if (!lastSession) {
         return { active: [] as string[], archived: [] as string[] };
       }
@@ -139,20 +142,16 @@ export function TomorrowSidebar({
       return { active, archived: [] as string[] };
     }, [sessions, lastSession]);
 
-  const archivedSet = useMemo(
+  const archivedSetFromSessions = useMemo(
     () => new Set(archivedNextMoves),
     [archivedNextMoves]
   );
 
+  // Filter brief tasks against the session-based archive
   const briefActiveTasks = useMemo(
-    () => tomorrowFromBrief.filter((t) => !archivedSet.has(t)),
-    [tomorrowFromBrief, archivedSet]
+    () => tomorrowFromBrief.filter((t) => !archivedSetFromSessions.has(t)),
+    [tomorrowFromBrief, archivedSetFromSessions]
   );
-
-  const hasBriefTasks = briefActiveTasks.length > 0;
-  const hasNextMoves = activeNextMoves.length > 0;
-  const hasQuickTasks = quickTasks.length > 0;
-  const isEmpty = !hasBriefTasks && !hasNextMoves && !hasQuickTasks;
 
   const tomorrowLabel = useMemo(() => {
     const d = new Date();
@@ -163,6 +162,114 @@ export function TomorrowSidebar({
       day: "numeric",
     });
   }, []);
+
+  // Single unified list of tasks (no visible categories), minus locally archived
+  const combinedTasks: CombinedTask[] = useMemo(() => {
+    const list: CombinedTask[] = [];
+    const seen = new Set<string>();
+
+    const pushUnique = (label: string, source: TaskSource) => {
+      const trimmed = label.trim();
+      if (!trimmed) return;
+      if (archivedLabelsSet.has(trimmed)) return; // hide locally-archived
+      if (seen.has(trimmed)) return;
+      seen.add(trimmed);
+      list.push({ label: trimmed, source });
+    };
+
+    briefActiveTasks.forEach((t) => pushUnique(t, "brief"));
+    activeNextMoves.forEach((t) => pushUnique(t, "next"));
+    quickTasks.forEach((t) => pushUnique(t, "quick"));
+
+    return list;
+  }, [briefActiveTasks, activeNextMoves, quickTasks, archivedLabelsSet]);
+
+  const isEmpty = combinedTasks.length === 0;
+
+  // All active task labels (used to seed 0.5h)
+  const allActiveTaskLabels = useMemo(
+    () =>
+      combinedTasks
+        .map((t) => t.label)
+        .filter((label) => !completedSet.has(label)),
+    [combinedTasks, completedSet]
+  );
+
+  // Seed hours for any active task that doesn't have an entry yet (default 0.5h)
+  useEffect(() => {
+    if (allActiveTaskLabels.length === 0) return;
+
+    setHoursByTask((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const raw of allActiveTaskLabels) {
+        const label = raw.trim();
+        if (!label) continue;
+        if (next[label] === undefined) {
+          next[label] = 0.5;
+          setTomorrowTaskHours(projectId, label, 0.5);
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [projectId, allActiveTaskLabels]);
+
+  // Slider behavior: adjust hours + auto-mark/unmark when crossing 0
+  const handleHoursChange = (task: string, newHours: number) => {
+    if (Number.isNaN(newHours) || newHours < 0) return;
+
+    const prevHours = hoursByTask[task] ?? 0.5;
+    const nextHours = newHours;
+
+    // Slider moves to 0 from >0 → mark as done (strike + "Done?")
+    if (prevHours > 0 && nextHours <= 0 && !completedSet.has(task)) {
+      onToggle(task);
+    }
+
+    // Slider moves back above 0 while currently marked done → unmark
+    if (prevHours <= 0 && nextHours > 0 && completedSet.has(task)) {
+      onToggle(task);
+    }
+
+    setHoursByTask((prev) => {
+      const next = { ...prev };
+      if (nextHours <= 0) {
+        delete next[task];
+        removeTomorrowTaskHours(projectId, task);
+      } else {
+        next[task] = nextHours;
+        setTomorrowTaskHours(projectId, task, nextHours);
+      }
+      return next;
+    });
+  };
+
+  // Confirm archive for a task (clicking "Done?")
+  const confirmArchive = (task: CombinedTask) => {
+    const label = task.label;
+
+    // 1) Remove from parent's completed set (so it doesn't stay "done" forever)
+    if (completedSet.has(label)) {
+      onToggle(label);
+    }
+
+    // 2) Hide locally from Tomorrow list
+    setArchivedLabels((prev) =>
+      prev.includes(label) ? prev : [...prev, label]
+    );
+
+    // 3) Persist archive + cleanup
+    addToLocalTomorrowArchive(projectId, label);
+    removeTomorrowTask(projectId, label);
+    removeTomorrowTaskHours(projectId, label);
+
+    if (task.source === "quick") {
+      removeQuickTask(label);
+    }
+  };
 
   return (
     <div className="flex h-full w-full flex-col overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/70 p-4">
@@ -205,7 +312,7 @@ export function TomorrowSidebar({
         </span>
       </div>
 
-      {/* Quick-add input (meeting notes → tomorrow tasks) */}
+      {/* Quick-add input */}
       {tab === "tomorrow" && (
         <form
           className="mt-3 flex items-center gap-2"
@@ -232,171 +339,74 @@ export function TomorrowSidebar({
 
       {tab === "tomorrow" && isEmpty && (
         <p className="mt-3 text-xs text-slate-500">
-          No &quot;Tomorrow&apos;s work plan&quot; section, session next moves,
-          or quick tasks yet. You can add quick tasks above or log a session.
+          No tasks for tomorrow yet. Add quick tasks above or log a session to
+          create next moves.
         </p>
       )}
 
       {tab === "tomorrow" && !isEmpty && (
-        <div className="mt-3 space-y-3 text-xs">
-          {/* From Arden brief */}
-          {hasBriefTasks && (
-            <section>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                From Arden brief
-              </div>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {briefActiveTasks.map((task) => {
-                  const isDone = completed.includes(task);
-                  const currentHours = hoursByTask[task] ?? 0.5;
+        <div className="mt-3 space-y-2 text-xs">
+          {combinedTasks.map((task) => {
+            const label = task.label;
+            const isMarkedDone = completedSet.has(label);
+            const currentHours = hoursByTask[label] ?? 0.5;
 
-                  return (
-                    <TomorrowTaskRow
-                      key={task}
-                      projectId={projectId}
-                      task={task}
-                      isDone={isDone}
-                      currentHours={currentHours}
-                      onToggleDone={() => {
-                        if (!isDone) {
-                          // First click → mark as done
-                          onToggle(task);
-                          return;
-                        }
+            return (
+              <TomorrowTaskRow
+                key={label}
+                task={label}
+                isMarkedDone={isMarkedDone}
+                currentHours={currentHours}
+                onLabelToggle={() => {
+                  if (isMarkedDone) {
+                    // UNMARK: hide "Done?" and restore default 0.5h if we were at 0
+                    onToggle(label);
 
-                        // Second click ("Done?") → archive + clean up
-                        onToggle(task);
-                        addToLocalTomorrowArchive(projectId, task);
-                        removeTomorrowTask(projectId, task);
-                        removeTomorrowTaskHours(projectId, task);
-                      }}
-                      onHoursChange={(h) => {
-                        if (h <= 0) {
-                          if (!isDone) {
-                            onToggle(task);
-                          }
-                          handleHoursChange(task, 0);
-                          return;
-                        }
-                        handleHoursChange(task, h);
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* From session next moves */}
-          {hasNextMoves && (
-            <section>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                From session next moves
-              </div>
-              <div className="mt-1 flex flex-col gap-2">
-                {activeNextMoves.map((task) => {
-                  const isDone = completed.includes(task);
-                  const currentHours = hoursByTask[task] ?? 0.5;
-
-                  return (
-                    <TomorrowTaskRow
-                      key={task}
-                      projectId={projectId}
-                      task={task}
-                      isDone={isDone}
-                      currentHours={currentHours}
-                      onToggleDone={() => {
-                        if (!isDone) {
-                          // First click → mark as done
-                          onToggle(task);
-                          return;
-                        }
-
-                        // Second click ("Done?") → archive + clean up
-                        onToggle(task);
-                        addToLocalTomorrowArchive(projectId, task);
-                        removeTomorrowTask(projectId, task);
-                        removeTomorrowTaskHours(projectId, task);
-                      }}
-                      onHoursChange={(h) => {
-                        if (h <= 0) {
-                          if (!isDone) {
-                            onToggle(task);
-                          }
-                          handleHoursChange(task, 0);
-                          return;
-                        }
-                        handleHoursChange(task, h);
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Quick notes */}
-          {hasQuickTasks && (
-            <section>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                Quick notes
-              </div>
-              <div className="mt-1 flex flex-col gap-2">
-                {quickTasks.map((task) => {
-                  const isDone = completed.includes(task);
-                  const currentHours = hoursByTask[task] ?? 0.5;
-
-                  return (
-                    <TomorrowTaskRow
-                      key={task}
-                      projectId={projectId}
-                      task={task}
-                      isDone={isDone}
-                      currentHours={currentHours}
-                      onToggleDone={() => {
-                        if (!isDone) {
-                          // First click → mark as done
-                          onToggle(task);
-                          return;
-                        }
-
-                        // Second click ("Done?") → archive + clean up
-                        onToggle(task);
-                        addToLocalTomorrowArchive(projectId, task);
-                        removeTomorrowTask(projectId, task);
-                        removeTomorrowTaskHours(projectId, task);
-                      }}
-                      onHoursChange={(h) => {
-                        if (h <= 0) {
-                          if (!isDone) {
-                            onToggle(task);
-                          }
-                          handleHoursChange(task, 0);
-                          return;
-                        }
-                        handleHoursChange(task, h);
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          )}
+                    setHoursByTask((prev) => {
+                      const prevHours = prev[label] ?? 0;
+                      const nextHours = prevHours > 0 ? prevHours : 0.5;
+                      const next = { ...prev, [label]: nextHours };
+                      setTomorrowTaskHours(projectId, label, nextHours);
+                      return next;
+                    });
+                  } else {
+                    // MARK DONE: strike-through + show "Done?"
+                    onToggle(label);
+                  }
+                }}
+                onConfirmDone={() => {
+                  confirmArchive(task);
+                }}
+                onHoursChange={(h) => {
+                  handleHoursChange(label, h);
+                }}
+              />
+            );
+          })}
         </div>
       )}
 
       {tab === "archive" && (
         <div className="mt-3 space-y-2 text-xs">
-          {archivedNextMoves.length === 0 ? (
+          {archivedNextMoves.length === 0 && archivedLabels.length === 0 ? (
             <p className="text-slate-500">
-              No archived tasks yet. Mark items complete and save your session
-              to see them here.
+              No archived tasks yet. Mark items complete and confirm to send
+              them here.
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {archivedNextMoves.map((task, i) => (
                 <span
-                  key={i}
+                  key={`sess-${i}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-950/80 px-2.5 py-1 text-[11px] text-slate-300"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
+                  <span className="line-clamp-2">{task}</span>
+                </span>
+              ))}
+              {archivedLabels.map((task, i) => (
+                <span
+                  key={`local-${i}`}
                   className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-950/80 px-2.5 py-1 text-[11px] text-slate-300"
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
@@ -412,45 +422,45 @@ export function TomorrowSidebar({
 }
 
 function TomorrowTaskRow({
-  projectId,
   task,
-  isDone,
-  onToggleDone,
+  isMarkedDone,
   currentHours,
+  onLabelToggle,
+  onConfirmDone,
   onHoursChange,
 }: {
-  projectId: ProjectId;
   task: string;
-  isDone: boolean;
-  onToggleDone: () => void;
+  isMarkedDone: boolean;
   currentHours: number;
+  onLabelToggle: () => void;
+  onConfirmDone: () => void;
   onHoursChange: (n: number) => void;
 }) {
   return (
     <div
       className={
         "flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] " +
-        (isDone
+        (isMarkedDone
           ? "border-emerald-400 bg-emerald-500/15 text-emerald-100"
           : "border-slate-600 bg-slate-950/70 text-slate-100")
       }
     >
-      {/* Toggle button */}
+      {/* Label / toggle */}
       <button
         type="button"
-        onClick={onToggleDone}
-        className="flex items-center gap-1"
+        onClick={onLabelToggle}
+        className="flex flex-1 items-center gap-1"
       >
         <span
           className={
             "h-1.5 w-1.5 rounded-full " +
-            (isDone ? "bg-emerald-400" : "bg-emerald-300")
+            (isMarkedDone ? "bg-emerald-400" : "bg-emerald-300")
           }
         />
         <span
           className={
             "line-clamp-2 text-left " +
-            (isDone ? "line-through opacity-80" : "")
+            (isMarkedDone ? "line-through opacity-80" : "")
           }
         >
           {task}
@@ -458,33 +468,31 @@ function TomorrowTaskRow({
       </button>
 
       {/* Hours slider */}
-      {!isDone && (
-        <input
-          type="range"
-          min={0}
-          max={6}
-          step={0.5}
-          value={currentHours}
-          onChange={(e) => {
-            const num = Number(e.target.value);
-            onHoursChange(num);
-          }}
-          className="w-20 accent-emerald-500"
-        />
+      {!isMarkedDone && (
+        <>
+          <input
+            type="range"
+            min={0}
+            max={6}
+            step={0.5}
+            value={currentHours}
+            onChange={(e) => {
+              const num = Number(e.target.value);
+              onHoursChange(num);
+            }}
+            className="w-20 accent-emerald-500"
+          />
+          <span className="w-8 text-right text-[10px] text-slate-400">
+            {currentHours.toFixed(1)}h
+          </span>
+        </>
       )}
 
-      {/* Hours label */}
-      {!isDone && (
-        <span className="text-[10px] text-slate-400 w-8 text-right">
-          {currentHours.toFixed(1)}h
-        </span>
-      )}
-
-      {/* Done? button */}
-      {isDone && (
+      {/* Done? confirmation */}
+      {isMarkedDone && (
         <button
           type="button"
-          onClick={onToggleDone}
+          onClick={onConfirmDone}
           className="ml-2 text-[10px] text-emerald-300 hover:text-emerald-200"
         >
           Done?

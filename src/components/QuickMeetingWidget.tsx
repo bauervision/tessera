@@ -25,10 +25,12 @@ export function QuickMeetingsWidget() {
   const [jobId, setJobId] = useState<string>("");
   const [recurrence, setRecurrence] = useState<MeetingRecurrence>("none");
 
+  // NEW: duration in hours (0.5 default)
+  const [durationHours, setDurationHours] = useState<number>(0.5);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // load companies (jobs) once
     const { jobs } = loadJobsAndProjects();
     setJobs(jobs);
 
@@ -36,9 +38,7 @@ export function QuickMeetingsWidget() {
       setUpcoming(getUpcomingMeetings());
     };
 
-    // initial load
     refresh();
-
     window.addEventListener("tessera:meetings-updated", refresh);
     return () => {
       window.removeEventListener("tessera:meetings-updated", refresh);
@@ -51,13 +51,15 @@ export function QuickMeetingsWidget() {
 
     setSaving(true);
 
-    const meeting = addMeeting({
+    addMeeting({
       title: title.trim(),
       dateIso,
       time: time || null,
       location: location.trim() || null,
       jobId,
       recurrence,
+      // use slider value
+      durationMinutes: Math.round(durationHours * 60),
     });
 
     setTitle("");
@@ -67,8 +69,8 @@ export function QuickMeetingsWidget() {
     setJobId("");
     setSaving(false);
     setRecurrence("none");
+    setDurationHours(0.5); // reset to default
 
-    // refresh upcoming list
     setUpcoming(getUpcomingMeetings());
 
     if (typeof window !== "undefined") {
@@ -80,7 +82,6 @@ export function QuickMeetingsWidget() {
 
   return (
     <div className="fixed bottom-15 right-4 z-40 flex flex-col items-end gap-2">
-      {/* Panel */}
       {open && (
         <div className="w-[320px] rounded-2xl border border-white/15 bg-slate-900/90 p-3 text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.75)] backdrop-blur">
           <div className="flex items-center justify-between gap-2">
@@ -124,7 +125,7 @@ export function QuickMeetingsWidget() {
                 <DatePicker value={dateIso} onChange={setDateIso} />
               </div>
 
-              {/* Custom time picker */}
+              {/* Time picker */}
               <div className="w-[150px] space-y-1">
                 <label className="block text-[10px] text-slate-400">Time</label>
                 {(() => {
@@ -188,8 +189,28 @@ export function QuickMeetingsWidget() {
               </div>
             </div>
 
-            {/* NEW: Company dropdown */}
-            {/* Company (required) */}
+            {/* Duration slider */}
+            <div className="space-y-1">
+              <label className="block text-[10px] text-slate-400">
+                Duration
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0.5}
+                  max={3}
+                  step={0.5}
+                  value={durationHours}
+                  onChange={(e) => setDurationHours(Number(e.target.value))}
+                  className="flex-1 accent-emerald-500"
+                />
+                <span className="w-10 text-right text-[10px] text-slate-300">
+                  {durationHours.toFixed(1)}h
+                </span>
+              </div>
+            </div>
+
+            {/* Company */}
             {jobs.length > 0 && (
               <div className="space-y-1">
                 <label className="block text-[10px] text-slate-400">
@@ -212,7 +233,7 @@ export function QuickMeetingsWidget() {
               </div>
             )}
 
-            {/* Repeats */}
+            {/* Repeats (restored) */}
             <div className="space-y-1">
               <label className="block text-[10px] text-slate-400">
                 Repeats
@@ -259,6 +280,7 @@ export function QuickMeetingsWidget() {
               </div>
             </div>
 
+            {/* Location */}
             <div className="space-y-1">
               <label className="block text-[10px] text-slate-400">
                 Location / link (optional)
@@ -271,6 +293,7 @@ export function QuickMeetingsWidget() {
               />
             </div>
 
+            {/* Submit */}
             <div className="mt-1 flex justify-end">
               <button
                 type="submit"
@@ -284,7 +307,6 @@ export function QuickMeetingsWidget() {
         </div>
       )}
 
-      {/* FAB button */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

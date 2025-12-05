@@ -3,7 +3,11 @@
 
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { getMeetingsForDate, getAllMilestones } from "@/lib/storage";
+import {
+  getMeetingsForDate,
+  getAllMilestones,
+  cancelMeeting,
+} from "@/lib/storage";
 import type { Meeting, Milestone } from "@/lib/types";
 import { formatDayShort, todayIso } from "@/lib/calendarHelpers";
 import { loadSavedWeeklyPlan, type SavedWeeklyPlan } from "@/lib/weeklyPlanner";
@@ -321,8 +325,9 @@ export default function DailyRundown({ show, onToggle }: DailyRundownProps) {
       const startMinutes = timeToMinutes(m.time);
       if (startMinutes == null) return;
 
+      const duration = m.durationMinutes ?? 30; // <– NEW
       const start = startMinutes;
-      const end = start + 30; // 30m default
+      const end = start + duration;
 
       blocks.push({
         id: `mtg-${m.id ?? idx}`,
@@ -331,6 +336,8 @@ export default function DailyRundown({ show, onToggle }: DailyRundownProps) {
         startMinutes: start,
         endMinutes: end,
         hours: (end - start) / 60,
+        // optional: carry the meeting id so we can cancel easily
+        meetingId: m.id,
       });
     });
 
@@ -623,6 +630,12 @@ export default function DailyRundown({ show, onToggle }: DailyRundownProps) {
     });
   }
 
+  function handleCancelMeeting(meetingId: string) {
+    cancelMeeting(meetingId);
+    // refresh DRD
+    setRefreshKey((k) => k + 1);
+  }
+
   return (
     <>
       <div className="flex  min-h-0 flex-col rounded-2xl border border-slate-800 bg-slate-950/90">
@@ -724,6 +737,7 @@ export default function DailyRundown({ show, onToggle }: DailyRundownProps) {
                                 timeLabel={label}
                                 onEdit={openEditDialog}
                                 onResize={handleResizeBlock}
+                                onCancelMeeting={handleCancelMeeting}
                               />
                             );
                           })}

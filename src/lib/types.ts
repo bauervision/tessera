@@ -61,6 +61,7 @@ export type Meeting = {
   time?: string | null; // "14:30" (24h string) or null
   location?: string | null;
   recurrence?: MeetingRecurrence;
+  durationMinutes?: number;
 };
 
 export type ViewMode = "week" | "month";

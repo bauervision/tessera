@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   loadJobsAndProjects,
   getMeetingsForDate,
-  deleteMeeting,
+  cancelMeeting,
   getAllMilestones,
 } from "@/lib/storage";
 import type { Job, Meeting, Milestone } from "@/lib/types";
@@ -91,7 +91,7 @@ export default function DashboardMeetingsPanel() {
   );
 
   function handleCancelMeeting(m: Meeting) {
-    deleteMeeting(m.id);
+    cancelMeeting(m.id);
     setRefreshKey((k) => k + 1);
   }
 
